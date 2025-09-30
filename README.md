@@ -8,6 +8,8 @@ Optimal control and reinforcement learning class project 6
 
 ## 자료
 LABOR paper: https://arxiv.org/pdf/2404.02018
+
+
 Isaac Sim: https://isaac-sim.github.io/IsaacLab/main/source/overview/environments.html
 
 
