@@ -13,8 +13,6 @@ Groot is a hierarchical framework that uses LLMs to generate subgoals and RL con
 
 <img src="docs/gr1t2_pickplace_env.png" width="100%" height="100%"/>  
 
-</br>
-
 #### Motivation and Background
 - Long-horizon bimanual tasks (e.g., folding cloth, opening jars) are challenging for standard reinforcement learning (RL) due to the large state–action spaces involved.
 - Existing LLM-based planners (such as LABOR, LLM+MAP) typically depend on scripted skills, which can limit flexibility and generalization.
