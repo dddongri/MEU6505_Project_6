@@ -24,23 +24,23 @@ def object_obs(
     """
 
     body_pos_w = env.scene["robot"].data.body_pos_w
-    left_eef_idx = env.scene["robot"].data.body_names.index("left_hand_roll_link")
-    right_eef_idx = env.scene["robot"].data.body_names.index("right_hand_roll_link")
+    left_eef_idx = env.scene["robot"].data.body_names.index("left_hand_pitch_link")
+    right_eef_idx = env.scene["robot"].data.body_names.index("right_hand_pitch_link")
     left_eef_pos = body_pos_w[:, left_eef_idx] - env.scene.env_origins
-    right_eef_pos = body_pos_w[:, right_eef_idx] - env.scene.env_origins
+    # right_eef_pos = body_pos_w[:, right_eef_idx] - env.scene.env_origins
 
     object_pos = env.scene["object"].data.root_pos_w - env.scene.env_origins
     object_quat = env.scene["object"].data.root_quat_w
 
     left_eef_to_object = object_pos - left_eef_pos
-    right_eef_to_object = object_pos - right_eef_pos
+    # right_eef_to_object = object_pos - right_eef_pos
 
     return torch.cat(
         (
             object_pos,
             object_quat,
             left_eef_to_object,
-            right_eef_to_object,
+            # right_eef_to_object,
         ),
         dim=1,
     )
@@ -50,7 +50,7 @@ def get_left_eef_pos(
     env: ManagerBasedRLEnv,
 ) -> torch.Tensor:
     body_pos_w = env.scene["robot"].data.body_pos_w
-    left_eef_idx = env.scene["robot"].data.body_names.index("left_hand_roll_link")
+    left_eef_idx = env.scene["robot"].data.body_names.index("left_hand_pitch_link")
     left_eef_pos = body_pos_w[:, left_eef_idx] - env.scene.env_origins
 
     return left_eef_pos
@@ -60,7 +60,7 @@ def get_left_eef_quat(
     env: ManagerBasedRLEnv,
 ) -> torch.Tensor:
     body_quat_w = env.scene["robot"].data.body_quat_w
-    left_eef_idx = env.scene["robot"].data.body_names.index("left_hand_roll_link")
+    left_eef_idx = env.scene["robot"].data.body_names.index("left_hand_pitch_link")
     left_eef_quat = body_quat_w[:, left_eef_idx]
 
     return left_eef_quat
@@ -70,7 +70,7 @@ def get_right_eef_pos(
     env: ManagerBasedRLEnv,
 ) -> torch.Tensor:
     body_pos_w = env.scene["robot"].data.body_pos_w
-    right_eef_idx = env.scene["robot"].data.body_names.index("right_hand_roll_link")
+    right_eef_idx = env.scene["robot"].data.body_names.index("right_hand_pitch_link")
     right_eef_pos = body_pos_w[:, right_eef_idx] - env.scene.env_origins
 
     return right_eef_pos
@@ -80,7 +80,7 @@ def get_right_eef_quat(
     env: ManagerBasedRLEnv,
 ) -> torch.Tensor:
     body_quat_w = env.scene["robot"].data.body_quat_w
-    right_eef_idx = env.scene["robot"].data.body_names.index("right_hand_roll_link")
+    right_eef_idx = env.scene["robot"].data.body_names.index("right_hand_pitch_link")
     right_eef_quat = body_quat_w[:, right_eef_idx]
 
     return right_eef_quat

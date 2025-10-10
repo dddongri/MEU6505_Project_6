@@ -12,6 +12,8 @@ from isaaclab.managers import RewardTermCfg as RewTerm
 from isaaclab.managers import SceneEntityCfg
 from isaaclab.managers import TerminationTermCfg as DoneTerm
 from isaaclab.scene import InteractiveSceneCfg
+from isaaclab.sensors import FrameTransformerCfg
+from isaaclab.sensors.frame_transformer import OffsetCfg
 from isaaclab.sim.spawners.from_files.from_files_cfg import GroundPlaneCfg, UsdFileCfg
 from isaaclab.utils import configclass
 from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR, ISAACLAB_NUCLEUS_DIR
@@ -19,6 +21,11 @@ from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR, ISAACLAB_NUCLEUS_DIR
 from . import mdp
 
 from isaaclab_assets.robots.fourier import GR1T2_HIGH_PD_CFG  # isort: skip
+from isaaclab.markers.config import FRAME_MARKER_CFG  # isort: skip
+
+
+FRAME_MARKER_SMALL_CFG = FRAME_MARKER_CFG.copy()
+FRAME_MARKER_SMALL_CFG.markers["frame"].scale = (0.075, 0.075, 0.075)
 
 
 ##
@@ -39,10 +46,11 @@ class ObjectTableSceneCfg(InteractiveSceneCfg):
 
     object = RigidObjectCfg(
         prim_path="{ENV_REGEX_NS}/Object",
-        init_state=RigidObjectCfg.InitialStateCfg(pos=[-0.45, 0.45, 0.9996], rot=[1, 0, 0, 0]),
+        init_state=RigidObjectCfg.InitialStateCfg(pos=[-0.45, 0.45, 1.08], rot=[1, 0, 0, 0]),
         spawn=UsdFileCfg(
-            usd_path=f"{ISAACLAB_NUCLEUS_DIR}/Mimic/pick_place_task/pick_place_assets/steering_wheel.usd",
-            scale=(0.75, 0.75, 0.75),
+            # usd_path=f"{ISAACLAB_NUCLEUS_DIR}/Mimic/pick_place_task/pick_place_assets/steering_wheel.usd",
+            usd_path=f"{ISAACLAB_NUCLEUS_DIR}/Objects/ToyTruck/toy_truck.usd",
+            scale=(1.5, 1.5, 1.5),
             rigid_props=sim_utils.RigidBodyPropertiesCfg(),
         ),
     )
@@ -94,6 +102,23 @@ class ObjectTableSceneCfg(InteractiveSceneCfg):
         prim_path="/World/light",
         spawn=sim_utils.DomeLightCfg(color=(0.75, 0.75, 0.75), intensity=3000.0),
     )
+    
+    # Frames
+    EE_frame = FrameTransformerCfg(
+        prim_path="/World/envs/env_.*/Robot/left_hand_pitch_link",
+        debug_vis=True,
+        visualizer_cfg=FRAME_MARKER_SMALL_CFG.replace(prim_path="/Visuals/left_hand_ee_frame"),
+        target_frames=[
+            FrameTransformerCfg.FrameCfg(
+                prim_path="/World/envs/env_.*/Robot/left_hand_pitch_link",
+                name="left_hand_pitch_link",
+                offset=OffsetCfg(
+                    pos=(0.0, 0.0, -0.085),    # offset to the center of the gripper
+                    rot=(1.0, 0.0, 0.0, 0.0),  # align with end-effector frame
+                ),
+            ),
+        ],
+    )
 
 
 ##
@@ -103,28 +128,44 @@ class ObjectTableSceneCfg(InteractiveSceneCfg):
 class ActionsCfg:
     """Action specifications for the MDP."""
     
-    gr1_action = mdp.JointPositionActionCfg(
+    # Joint Position Action
+    # gr1_action = mdp.JointPositionActionCfg(
+    #     asset_name="robot",
+    #     joint_names=[
+    #         "left_shoulder_pitch_joint",
+    #         "left_shoulder_roll_joint",
+    #         "left_shoulder_yaw_joint",
+    #         "left_elbow_pitch_joint",
+    #         "left_wrist_yaw_joint",
+    #         "left_wrist_roll_joint",
+    #         "left_wrist_pitch_joint",
+    #         "right_shoulder_pitch_joint",
+    #         "right_shoulder_roll_joint",
+    #         "right_shoulder_yaw_joint",
+    #         "right_elbow_pitch_joint",
+    #         "right_wrist_yaw_joint",
+    #         "right_wrist_roll_joint",
+    #         "right_wrist_pitch_joint",
+    #     ],
+    #     scale=0.5,
+    #     use_default_offset=True
+    # )
+
+    # Differential IK Action
+    gr1_action = mdp.DifferentialInverseKinematicsActionCfg(
         asset_name="robot",
         joint_names=[
-            "left_shoulder_pitch_joint",
-            "left_shoulder_roll_joint",
-            "left_shoulder_yaw_joint",
-            "left_elbow_pitch_joint",
-            "left_wrist_yaw_joint",
-            "left_wrist_roll_joint",
-            "left_wrist_pitch_joint",
-            "right_shoulder_pitch_joint",
-            "right_shoulder_roll_joint",
-            "right_shoulder_yaw_joint",
-            "right_elbow_pitch_joint",
-            "right_wrist_yaw_joint",
-            "right_wrist_roll_joint",
-            "right_wrist_pitch_joint",
+            "left_shoulder_pitch_joint", "left_shoulder_roll_joint", "left_shoulder_yaw_joint", "left_elbow_pitch_joint", 
+            "left_wrist_yaw_joint", "left_wrist_roll_joint", "left_wrist_pitch_joint",
         ],
-        scale=0.5,
-        use_default_offset=True
+        body_name="left_hand_pitch_link",
+        body_offset=mdp.DifferentialInverseKinematicsActionCfg.OffsetCfg(
+            pos=(0.0, 0.0, -0.085),
+            rot=(1.0, 0.0, 0.0, 0.0)
+        ),
+        scale=0.25,
+        controller=mdp.DifferentialIKControllerCfg(command_type="pose", use_relative_mode=True, ik_method="dls"),
     )
-
 
 @configclass
 class ObservationsCfg:
@@ -143,15 +184,14 @@ class ObservationsCfg:
         robot_root_rot = ObsTerm(func=base_mdp.root_quat_w, params={"asset_cfg": SceneEntityCfg("robot")})
         object_pos = ObsTerm(func=base_mdp.root_pos_w, params={"asset_cfg": SceneEntityCfg("object")})
         object_rot = ObsTerm(func=base_mdp.root_quat_w, params={"asset_cfg": SceneEntityCfg("object")})
-        # robot_links_state = ObsTerm(func=mdp.get_all_robot_link_state)
 
         left_eef_pos = ObsTerm(func=mdp.get_left_eef_pos)
         left_eef_quat = ObsTerm(func=mdp.get_left_eef_quat)
-        right_eef_pos = ObsTerm(func=mdp.get_right_eef_pos)
-        right_eef_quat = ObsTerm(func=mdp.get_right_eef_quat)
+        # right_eef_pos = ObsTerm(func=mdp.get_right_eef_pos)
+        # right_eef_quat = ObsTerm(func=mdp.get_right_eef_quat)
 
-        hand_joint_state = ObsTerm(func=mdp.get_hand_state)
-        head_joint_state = ObsTerm(func=mdp.get_head_state)
+        # hand_joint_state = ObsTerm(func=mdp.get_hand_state)
+        # head_joint_state = ObsTerm(func=mdp.get_head_state)
 
         object = ObsTerm(func=mdp.object_obs)
 
@@ -205,8 +245,8 @@ class EventCfg:
         mode="reset",
         params={
             "pose_range": {
-                "x": [-0.01, 0.01],
-                "y": [-0.01, 0.01],
+                "x": [-0.02, 0.02],
+                "y": [-0.02, 0.02],
             },
             "velocity_range": {},
             "asset_cfg": SceneEntityCfg("object"),
@@ -219,7 +259,7 @@ class GR1T2PickPlaceEnvCfg(ManagerBasedRLEnvCfg):
     """Configuration for the GR1T2 environment."""
 
     # Scene settings
-    scene: ObjectTableSceneCfg = ObjectTableSceneCfg(num_envs=1, env_spacing=2.5, replicate_physics=True)
+    scene: ObjectTableSceneCfg = ObjectTableSceneCfg(num_envs=4096, env_spacing=2.5, replicate_physics=True)
     # Basic settings
     observations: ObservationsCfg = ObservationsCfg()
     actions: ActionsCfg = ActionsCfg()
