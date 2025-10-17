@@ -2,4 +2,4 @@
 
 from .pick_place import *  # noqa
 
-from .hand_to_hand.hand_to_hand_env_cfg import HandToHandEnvCfg
+from .hand_to_hand import *

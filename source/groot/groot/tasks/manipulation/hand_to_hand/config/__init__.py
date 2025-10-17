@@ -1,1 +1,1 @@
-print("[h2h1] registry module imported")
+print("[GR1T2] registry module imported")

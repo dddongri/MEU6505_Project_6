@@ -1,6 +1,6 @@
 from isaaclab.utils import configclass
 
-from groot.tasks.manipulation.pick_place.pick_place_env_cfg import GR1T2PickPlaceEnvCfg
+from groot.tasks.manipulation.hand_to_hand.hand_to_hand_env_cfg import GR1T2HandToHandEnvCfg
 
 ##
 # Pre-defined configs
@@ -8,7 +8,7 @@ from groot.tasks.manipulation.pick_place.pick_place_env_cfg import GR1T2PickPlac
 
 
 @configclass
-class GR1T2BasicEnvCfg(GR1T2PickPlaceEnvCfg):
+class GR1T2BasicEnvCfg(GR1T2HandToHandEnvCfg):
     def __post_init__(self):
         # post init of parent
         super().__post_init__()
