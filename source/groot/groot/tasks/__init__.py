@@ -18,4 +18,4 @@ import_packages(__name__, _BLACKLIST_PKGS)
 
 # ensure GR1T2 envs are registered on package import
 from .manipulation.pick_place.config import gr1t2  # noqa: F401
-from .manipulation.hand_to_hand.hand_to_hand_env_cfg import h2h1
+from .manipulation.hand_to_hand.hand_to_hand_env_cfg import gr1t2
