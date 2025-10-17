@@ -1,42 +1,114 @@
-# observations.py
+# Copyright (c) 2022-2025, The Isaac Lab Project Developers (https://github.com/isaac-sim/IsaacLab/blob/main/CONTRIBUTORS.md).
+# All rights reserved.
+#
+# SPDX-License-Identifier: BSD-3-Clause
+
 from __future__ import annotations
+
 import torch
+from typing import TYPE_CHECKING
 
-# 캐시에 공통 계산을 저장해 여러 term이 재사용할 수 있게 구성하는 걸 권장
-def obs_lh_obj_rel(scene, env_ids, cache):
-    # 왼손 EE와 물체의 월드 포즈(또는 위치) 취득
-    lh_pos = scene["left_arm"].ee_pose_w[env_ids, :3]      # [N,3]
-    obj_pos = scene["handover_object"].pose_w[env_ids, :3] # [N,3]
-    rel = obj_pos - lh_pos
-    cache["lh_obj_rel"] = rel
-    return rel  # [N,3]
+if TYPE_CHECKING:
+    from isaaclab.envs import ManagerBasedRLEnv
 
-def obs_rh_obj_rel(scene, env_ids, cache):
-    rh_pos = scene["right_arm"].ee_pose_w[env_ids, :3]
-    obj_pos = scene["handover_object"].pose_w[env_ids, :3]
-    rel = obj_pos - rh_pos
-    cache["rh_obj_rel"] = rel
-    return rel
 
-def obs_hands_rel(scene, env_ids, cache):
-    lh_pos = scene["left_arm"].ee_pose_w[env_ids, :3]
-    rh_pos = scene["right_arm"].ee_pose_w[env_ids, :3]
-    rel = rh_pos - lh_pos
-    cache["hands_rel"] = rel
-    return rel
+def object_obs(
+    env: ManagerBasedRLEnv,
+) -> torch.Tensor:
+    """
+    Object observations (in world frame):
+        object pos,
+        object quat,
+        left_eef to object,
+        right_eef_to object,
+    """
 
-def obs_grasp_flags(scene, env_ids, cache):
-    # 그립 센서/접촉 기반 플래그. 없으면 집게-물체 거리 < thresh 로 더미 구성 가능
-    lh_g = scene["left_gripper"].grasp_flag[env_ids].float().unsqueeze(-1)   # [N,1]
-    rh_g = scene["right_gripper"].grasp_flag[env_ids].float().unsqueeze(-1)  # [N,1]
-    out = torch.cat([lh_g, rh_g], dim=-1)  # [N,2]
-    cache["grasp_flags"] = out
-    return out
+    body_pos_w = env.scene["robot"].data.body_pos_w
+    left_eef_idx = env.scene["robot"].data.body_names.index("left_hand_pitch_link")
+    right_eef_idx = env.scene["robot"].data.body_names.index("right_hand_pitch_link")
+    left_eef_pos = body_pos_w[:, left_eef_idx] - env.scene.env_origins
+    # right_eef_pos = body_pos_w[:, right_eef_idx] - env.scene.env_origins
 
-def obs_obj_linvel(scene, env_ids, cache):
-    v = scene["handover_object"].lin_vel_w[env_ids]  # [N,3]
-    return v
+    object_pos = env.scene["object"].data.root_pos_w - env.scene.env_origins
+    object_quat = env.scene["object"].data.root_quat_w
 
-def obs_obj_angvel(scene, env_ids, cache):
-    w = scene["handover_object"].ang_vel_w[env_ids]  # [N,3]
-    return w
+    left_eef_to_object = object_pos - left_eef_pos
+    # right_eef_to_object = object_pos - right_eef_pos
+
+    return torch.cat(
+        (
+            object_pos,
+            object_quat,
+            left_eef_to_object,
+            # right_eef_to_object,
+        ),
+        dim=1,
+    )
+
+
+def get_left_eef_pos(
+    env: ManagerBasedRLEnv,
+) -> torch.Tensor:
+    body_pos_w = env.scene["robot"].data.body_pos_w
+    left_eef_idx = env.scene["robot"].data.body_names.index("left_hand_pitch_link")
+    left_eef_pos = body_pos_w[:, left_eef_idx] - env.scene.env_origins
+
+    return left_eef_pos
+
+
+def get_left_eef_quat(
+    env: ManagerBasedRLEnv,
+) -> torch.Tensor:
+    body_quat_w = env.scene["robot"].data.body_quat_w
+    left_eef_idx = env.scene["robot"].data.body_names.index("left_hand_pitch_link")
+    left_eef_quat = body_quat_w[:, left_eef_idx]
+
+    return left_eef_quat
+
+
+def get_right_eef_pos(
+    env: ManagerBasedRLEnv,
+) -> torch.Tensor:
+    body_pos_w = env.scene["robot"].data.body_pos_w
+    right_eef_idx = env.scene["robot"].data.body_names.index("right_hand_pitch_link")
+    right_eef_pos = body_pos_w[:, right_eef_idx] - env.scene.env_origins
+
+    return right_eef_pos
+
+
+def get_right_eef_quat(
+    env: ManagerBasedRLEnv,
+) -> torch.Tensor:
+    body_quat_w = env.scene["robot"].data.body_quat_w
+    right_eef_idx = env.scene["robot"].data.body_names.index("right_hand_pitch_link")
+    right_eef_quat = body_quat_w[:, right_eef_idx]
+
+    return right_eef_quat
+
+
+def get_hand_state(
+    env: ManagerBasedRLEnv,
+) -> torch.Tensor:
+    hand_joint_states = env.scene["robot"].data.joint_pos[:, -22:]  # Hand joints are last 22 entries of joint state
+
+    return hand_joint_states
+
+
+def get_head_state(
+    env: ManagerBasedRLEnv,
+) -> torch.Tensor:
+    robot_joint_names = env.scene["robot"].data.joint_names
+    head_joint_names = ["head_pitch_joint", "head_roll_joint", "head_yaw_joint"]
+    indexes = torch.tensor([robot_joint_names.index(name) for name in head_joint_names], dtype=torch.long)
+    head_joint_states = env.scene["robot"].data.joint_pos[:, indexes]
+
+    return head_joint_states
+
+
+def get_all_robot_link_state(
+    env: ManagerBasedRLEnv,
+) -> torch.Tensor:
+    body_pos_w = env.scene["robot"].data.body_link_state_w[:, :, :]
+    all_robot_link_pos = body_pos_w
+
+    return all_robot_link_pos
