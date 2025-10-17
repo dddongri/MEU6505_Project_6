@@ -27,20 +27,20 @@ def object_obs(
     left_eef_idx = env.scene["robot"].data.body_names.index("left_hand_pitch_link")
     right_eef_idx = env.scene["robot"].data.body_names.index("right_hand_pitch_link")
     left_eef_pos = body_pos_w[:, left_eef_idx] - env.scene.env_origins
-    # right_eef_pos = body_pos_w[:, right_eef_idx] - env.scene.env_origins
+    right_eef_pos = body_pos_w[:, right_eef_idx] - env.scene.env_origins
 
     object_pos = env.scene["object"].data.root_pos_w - env.scene.env_origins
     object_quat = env.scene["object"].data.root_quat_w
 
     left_eef_to_object = object_pos - left_eef_pos
-    # right_eef_to_object = object_pos - right_eef_pos
+    right_eef_to_object = object_pos - right_eef_pos
 
     return torch.cat(
         (
             object_pos,
             object_quat,
             left_eef_to_object,
-            # right_eef_to_object,
+            right_eef_to_object,
         ),
         dim=1,
     )
@@ -112,3 +112,30 @@ def get_all_robot_link_state(
     all_robot_link_pos = body_pos_w
 
     return all_robot_link_pos
+    
+
+def rel_left_to_object(env: ManagerBasedRLEnv) -> torch.Tensor:
+    left = get_left_eef_pos(env)
+    obj = env.scene["object"].data.root_pos_w - env.scene.env_origins
+    return obj - left
+
+
+def rel_right_to_object(env: ManagerBasedRLEnv) -> torch.Tensor:
+    right = get_right_eef_pos(env)
+    obj = env.scene["object"].data.root_pos_w - env.scene.env_origins
+    return obj - right
+
+
+def rel_hands(env: ManagerBasedRLEnv) -> torch.Tensor:
+    left = get_left_eef_pos(env)
+    right = get_right_eef_pos(env)
+    return right - left
+
+
+def get_grasp_flags(env: ManagerBasedRLEnv, dist_th: float = 0.06) -> torch.Tensor:
+    """[N,2] = [left_flag, right_flag] (거리 기반 의사 그립 플래그)"""
+    lh_obj = rel_left_to_object(env)
+    rh_obj = rel_right_to_object(env)
+    lh = (torch.norm(lh_obj, dim=-1) < dist_th).float().unsqueeze(-1)
+    rh = (torch.norm(rh_obj, dim=-1) < dist_th).float().unsqueeze(-1)
+    return torch.cat([lh, rh], dim=-1)

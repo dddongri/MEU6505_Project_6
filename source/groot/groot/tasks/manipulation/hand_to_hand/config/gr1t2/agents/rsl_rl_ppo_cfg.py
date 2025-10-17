@@ -7,7 +7,7 @@ class GR1T2BasicPPORunnerCfg(RslRlOnPolicyRunnerCfg):
     num_steps_per_env = 24
     max_iterations = 1500
     save_interval = 50
-    experiment_name = "h1h2_basic"
+    experiment_name = "gr1t2_basic"
     empirical_normalization = False
     policy = RslRlPpoActorCriticCfg(
         init_noise_std=1.0,

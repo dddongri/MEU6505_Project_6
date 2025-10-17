@@ -112,8 +112,8 @@ class ObjectTableSceneCfg(InteractiveSceneCfg):
                 prim_path="/World/envs/env_.*/Robot/left_hand_pitch_link",
                 name="left_hand_pitch_link",
                 offset=OffsetCfg(
-                    pos=(0.0, 0.0, -0.085),    # offset to the center of the gripper
-                    rot=(1.0, 0.0, 0.0, 0.0),  # align with end-effector frame
+                    pos=(0.0, 0.0, -0.085),
+                    rot=(1.0, 0.0, 0.0, 0.0),
                 ),
             ),
         ],
@@ -127,8 +127,7 @@ class ObjectTableSceneCfg(InteractiveSceneCfg):
 class ActionsCfg:
     """Action specifications for the MDP."""
     
-    # Differential IK Action
-    gr1_action = mdp.DifferentialInverseKinematicsActionCfg(
+    gr1_left_action = mdp.DifferentialInverseKinematicsActionCfg(
         asset_name="robot",
         joint_names=[
             "left_shoulder_pitch_joint", "left_shoulder_roll_joint", "left_shoulder_yaw_joint", "left_elbow_pitch_joint", 
@@ -143,20 +142,20 @@ class ActionsCfg:
         controller=mdp.DifferentialIKControllerCfg(command_type="pose", use_relative_mode=True, ik_method="dls"),
     )
 
-    # TODO: hand-to-hand에서는 오른손 제어도 필요하면 아래를 활성화
-    # gr1_right_action = mdp.DifferentialInverseKinematicsActionCfg(
-    #     asset_name="robot",
-    #     joint_names=[
-    #         "right_shoulder_pitch_joint","right_shoulder_roll_joint","right_shoulder_yaw_joint",
-    #         "right_elbow_pitch_joint","right_wrist_yaw_joint","right_wrist_roll_joint","right_wrist_pitch_joint",
-    #     ],
-    #     body_name="right_hand_pitch_link",
-    #     body_offset=mdp.DifferentialInverseKinematicsActionCfg.OffsetCfg(
-    #         pos=(0.0, 0.0, -0.085), rot=(1.0, 0.0, 0.0, 0.0)
-    #     ),
-    #     scale=0.25,
-    #     controller=mdp.DifferentialIKControllerCfg(command_type="pose", use_relative_mode=True, ik_method="dls"),
-    # )
+    gr1_right_action = mdp.DifferentialInverseKinematicsActionCfg(
+        asset_name="robot",
+        joint_names=[
+            "right_shoulder_pitch_joint","right_shoulder_roll_joint","right_shoulder_yaw_joint",
+            "right_elbow_pitch_joint","right_wrist_yaw_joint","right_wrist_roll_joint","right_wrist_pitch_joint",
+        ],
+        body_name="right_hand_pitch_link",
+        body_offset=mdp.DifferentialInverseKinematicsActionCfg.OffsetCfg(
+            pos=(0.0, 0.0, -0.085), 
+            rot=(1.0, 0.0, 0.0, 0.0)
+        ),
+        scale=0.25,
+        controller=mdp.DifferentialIKControllerCfg(command_type="pose", use_relative_mode=True, ik_method="dls"),
+    )
 
 
 @configclass
@@ -179,13 +178,8 @@ class ObservationsCfg:
 
         left_eef_pos = ObsTerm(func=mdp.get_left_eef_pos)
         left_eef_quat = ObsTerm(func=mdp.get_left_eef_quat)
-        right_eef_pos = ObsTerm(func=mdp.get_right_eef_pos)    # TODO: hand-to-hand용 관측 사용 시 mdp에 구현 필요
-        right_eef_quat = ObsTerm(func=mdp.get_right_eef_quat)  # TODO: hand-to-hand용 관측 사용 시 mdp에 구현 필요
-
-        # TODO: hand-to-hand 상대 특성 사용 시 활성화
-        # lh_obj_rel = ObsTerm(func=mdp.rel_left_to_object)
-        # rh_obj_rel = ObsTerm(func=mdp.rel_right_to_object)
-        # hands_rel  = ObsTerm(func=mdp.rel_hands)
+        right_eef_pos = ObsTerm(func=mdp.get_right_eef_pos)
+        right_eef_quat = ObsTerm(func=mdp.get_right_eef_quat)
 
         object = ObsTerm(func=mdp.object_obs)
 
@@ -197,7 +191,6 @@ class ObservationsCfg:
     class CriticCfg(PolicyCfg):
         pass
 
-    # observation groups
     policy: PolicyCfg = PolicyCfg()
     critic: CriticCfg = CriticCfg()
 
@@ -206,28 +199,30 @@ class ObservationsCfg:
 class RewardsCfg:
     """Reward terms for the MDP."""
 
-    # -- penalties
     dof_torques_l2 = RewTerm(func=mdp.joint_torques_l2, weight=-1.0e-5)
     dof_acc_l2 = RewTerm(func=mdp.joint_acc_l2, weight=-2.5e-7)
     action_rate_l2 = RewTerm(func=mdp.action_rate_l2, weight=-0.01)
-    # -- optional penalties
     dof_pos_limits = RewTerm(func=mdp.joint_pos_limits, weight=0.0)
 
-    # TODO: hand-to-hand 성공 보상/중간 보상 연결 시 아래와 같이 추가
-    # success_transfer = RewTerm(func=mdp.rew_hand_to_hand_success, weight=1.0)
+    # hand-to-hand shaping terms
+    left_approach = RewTerm(func=mdp.rew_left_approach, weight=1.0)
+    hands_proximity = RewTerm(func=mdp.rew_hands_proximity, weight=0.5)
+    align_to_exchange = RewTerm(func=mdp.rew_align_to_exchange, weight=1.0)
+    right_stability = RewTerm(func=mdp.rew_right_stability, weight=0.2)
+    transfer = RewTerm(func=mdp.rew_transfer, weight=4.0)
 
 
 @configclass
 class TerminationsCfg:
     """Termination terms for the MDP."""
 
-    time_out = DoneTerm(func=mdp.time_out, time_out=True)
+    time_out = DoneTerm(func=base_mdp.time_out, time_out=True)
 
     object_dropping = DoneTerm(
         func=mdp.root_height_below_minimum, params={"minimum_height": 0.5, "asset_cfg": SceneEntityCfg("object")}
     )
 
-    success = DoneTerm(func=mdp.task_done_hand_to_hand)  # TODO: mdp에 hand-to-hand 성공 조건 구현 필요
+    success = DoneTerm(func=mdp.task_done_hand_to_hand)
 
 
 @configclass
@@ -241,8 +236,8 @@ class EventCfg:
         mode="reset",
         params={
             "pose_range": {
-                "x": [-0.04, 0.04],
-                "y": [-0.04, 0.04],
+                "x": [-0.02, 0.02],
+                "y": [-0.02, 0.02],
             },
             "velocity_range": {},
             "asset_cfg": SceneEntityCfg("object"),
@@ -254,25 +249,19 @@ class EventCfg:
 class GR1T2HandToHandEnvCfg(ManagerBasedRLEnvCfg):
     """Configuration for the GR1T2 environment."""
 
-    # Scene settings
     scene: ObjectTableSceneCfg = ObjectTableSceneCfg(num_envs=4096, env_spacing=2.5, replicate_physics=True)
-    # Basic settings
     observations: ObservationsCfg = ObservationsCfg()
     actions: ActionsCfg = ActionsCfg()
-    # MDP settings
     rewards: RewardsCfg = RewardsCfg()
     terminations: TerminationsCfg = TerminationsCfg()
     events = EventCfg()
 
-    # Unused managers
     commands = None
     curriculum = None
 
     def __post_init__(self):
         """Post initialization."""
-        # general settings
         self.decimation = 6
         self.episode_length_s = 20.0
-        # simulation settings
         self.sim.dt = 1 / 120  # 120Hz
         self.sim.render_interval = 2
