@@ -5,14 +5,14 @@ from isaaclab_rl.rsl_rl import RslRlOnPolicyRunnerCfg, RslRlPpoActorCriticCfg, R
 @configclass
 class GR1T2BasicPPORunnerCfg(RslRlOnPolicyRunnerCfg):
     num_steps_per_env = 24
-    max_iterations = 1500
-    save_interval = 50
+    max_iterations = 3000
+    save_interval = 100
     experiment_name = "gr1t2_basic"
-    empirical_normalization = False
+    empirical_normalization = True
     policy = RslRlPpoActorCriticCfg(
-        init_noise_std=1.0,
-        actor_hidden_dims=[512, 256, 128],
-        critic_hidden_dims=[512, 256, 128],
+        init_noise_std=0.3,
+        actor_hidden_dims=[128, 64],
+        critic_hidden_dims=[128, 64],
         activation="elu",
     )
     algorithm = RslRlPpoAlgorithmCfg(
@@ -22,7 +22,7 @@ class GR1T2BasicPPORunnerCfg(RslRlOnPolicyRunnerCfg):
         entropy_coef=0.005,
         num_learning_epochs=5,
         num_mini_batches=4,
-        learning_rate=1.0e-3,
+        learning_rate=1.0e-4,
         schedule="adaptive",
         gamma=0.99,
         lam=0.95,

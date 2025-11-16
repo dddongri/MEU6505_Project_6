@@ -89,9 +89,12 @@ def get_right_eef_quat(
 def get_hand_state(
     env: ManagerBasedRLEnv,
 ) -> torch.Tensor:
-    hand_joint_states = env.scene["robot"].data.joint_pos[:, -22:]  # Hand joints are last 22 entries of joint state
+    hand_pos_states = env.scene["ee_frame"].data.target_pos_w[:, 0, :] - env.scene.env_origins
+    hand_ori_states = env.scene["ee_frame"].data.target_quat_w[:, 0, :]
+    
+    # hand_joint_states = env.scene["robot"].data.joint_pos[:, -22:]  # Hand joints are last 22 entries of joint state
 
-    return hand_joint_states
+    return torch.cat((hand_pos_states, hand_ori_states), dim=1)
 
 
 def get_head_state(
