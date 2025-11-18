@@ -24,7 +24,7 @@ if TYPE_CHECKING:
 def task_done_pick_place(
     env: ManagerBasedRLEnv,
     object_cfg: SceneEntityCfg = SceneEntityCfg("object"),
-    right_wrist_max_x: float = 0.26,
+    left_wrist_max_x: float = 0.26,
     min_x: float = 0.40,
     max_x: float = 0.85,
     min_y: float = 0.35,
@@ -63,10 +63,10 @@ def task_done_pick_place(
     object_height = object.data.root_pos_w[:, 2] - env.scene.env_origins[:, 2]
     object_vel = torch.abs(object.data.root_vel_w)
 
-    # Get right wrist position relative to environment origin
+    # Get left wrist position relative to environment origin
     robot_body_pos_w = env.scene["robot"].data.body_pos_w
-    right_eef_idx = env.scene["robot"].data.body_names.index("right_hand_roll_link")
-    right_wrist_x = robot_body_pos_w[:, right_eef_idx, 0] - env.scene.env_origins[:, 0]
+    left_eef_idx = env.scene["robot"].data.body_names.index("left_hand_pitch_link")
+    left_wrist_x = robot_body_pos_w[:, left_eef_idx, 0] - env.scene.env_origins[:, 0]
 
     # Check all success conditions and combine with logical AND
     done = object_x < max_x
@@ -74,7 +74,7 @@ def task_done_pick_place(
     done = torch.logical_and(done, object_y < max_y)
     done = torch.logical_and(done, object_y > min_y)
     done = torch.logical_and(done, object_height < max_height)
-    done = torch.logical_and(done, right_wrist_x < right_wrist_max_x)
+    done = torch.logical_and(done, left_wrist_x < left_wrist_max_x)
     done = torch.logical_and(done, object_vel[:, 0] < min_vel)
     done = torch.logical_and(done, object_vel[:, 1] < min_vel)
     done = torch.logical_and(done, object_vel[:, 2] < min_vel)
