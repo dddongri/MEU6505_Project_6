@@ -48,9 +48,8 @@ class ObjectTableSceneCfg(InteractiveSceneCfg):
         prim_path="{ENV_REGEX_NS}/Object",
         init_state=RigidObjectCfg.InitialStateCfg(pos=[-0.45, 0.45, 1.08], rot=[1, 0, 0, 0]),
         spawn=UsdFileCfg(
-            # usd_path=f"{ISAACLAB_NUCLEUS_DIR}/Mimic/pick_place_task/pick_place_assets/steering_wheel.usd",
-            usd_path=f"{ISAACLAB_NUCLEUS_DIR}/Objects/ToyTruck/toy_truck.usd",
-            scale=(1.5, 1.5, 1.5),
+            usd_path=f"{ISAAC_NUCLEUS_DIR}/Props/Beaker/beaker_500ml.usd",
+            scale=(0.5, 0.5, 0.5),
             rigid_props=sim_utils.RigidBodyPropertiesCfg(),
         ),
     )
@@ -104,7 +103,7 @@ class ObjectTableSceneCfg(InteractiveSceneCfg):
     )
     
     # Frames
-    EE_frame = FrameTransformerCfg(
+    ee_frame = FrameTransformerCfg(
         prim_path="/World/envs/env_.*/Robot/left_hand_pitch_link",
         debug_vis=True,
         visualizer_cfg=FRAME_MARKER_SMALL_CFG.replace(prim_path="/Visuals/left_hand_ee_frame"),
@@ -119,37 +118,14 @@ class ObjectTableSceneCfg(InteractiveSceneCfg):
             ),
         ],
     )
-
-
+    
+    
 ##
 # MDP settings
 ##
 @configclass
 class ActionsCfg:
     """Action specifications for the MDP."""
-    
-    # Joint Position Action
-    # gr1_action = mdp.JointPositionActionCfg(
-    #     asset_name="robot",
-    #     joint_names=[
-    #         "left_shoulder_pitch_joint",
-    #         "left_shoulder_roll_joint",
-    #         "left_shoulder_yaw_joint",
-    #         "left_elbow_pitch_joint",
-    #         "left_wrist_yaw_joint",
-    #         "left_wrist_roll_joint",
-    #         "left_wrist_pitch_joint",
-    #         "right_shoulder_pitch_joint",
-    #         "right_shoulder_roll_joint",
-    #         "right_shoulder_yaw_joint",
-    #         "right_elbow_pitch_joint",
-    #         "right_wrist_yaw_joint",
-    #         "right_wrist_roll_joint",
-    #         "right_wrist_pitch_joint",
-    #     ],
-    #     scale=0.5,
-    #     use_default_offset=True
-    # )
 
     # Differential IK Action
     gr1_action = mdp.DifferentialInverseKinematicsActionCfg(
@@ -166,6 +142,15 @@ class ActionsCfg:
         scale=0.25,
         controller=mdp.DifferentialIKControllerCfg(command_type="pose", use_relative_mode=True, ik_method="dls"),
     )
+    
+    # Gripper Action
+    gripper_action = mdp.BinaryJointPositionActionCfg(
+        asset_name="robot",
+        joint_names=["L_index_.*", "L_middle_.*", "L_pinky_.*", "L_ring_.*", "L_thumb_.*"],
+        open_command_expr={"L_index_.*": 0.0, "L_middle_.*": 0.0, "L_pinky_.*": 0.0, "L_ring_.*": 0.0, "L_thumb_.*": 0.0},
+        close_command_expr={"L_index_.*": -1.0, "L_middle_.*": -1.0, "L_pinky_.*": -1.0, "L_ring_.*": -1.0, "L_thumb_proximal_yaw_joint": -1.7,
+                            "L_thumb_proximal_pitch_joint": 0.35, "L_thumb_distal_joint": 1.0},
+    )
 
 @configclass
 class ObservationsCfg:
@@ -178,15 +163,26 @@ class ObservationsCfg:
         actions = ObsTerm(func=mdp.last_action)
         robot_joint_pos = ObsTerm(
             func=base_mdp.joint_pos,
-            params={"asset_cfg": SceneEntityCfg("robot")},
+            params={"asset_cfg": SceneEntityCfg("robot", joint_names=["left_shoulder_pitch_joint", "left_shoulder_roll_joint", 
+                                                                      "left_shoulder_yaw_joint", "left_elbow_pitch_joint", 
+                                                                      "left_wrist_yaw_joint", "left_wrist_roll_joint", "left_wrist_pitch_joint",])},
         )
-        robot_root_pos = ObsTerm(func=base_mdp.root_pos_w, params={"asset_cfg": SceneEntityCfg("robot")})
-        robot_root_rot = ObsTerm(func=base_mdp.root_quat_w, params={"asset_cfg": SceneEntityCfg("robot")})
-        object_pos = ObsTerm(func=base_mdp.root_pos_w, params={"asset_cfg": SceneEntityCfg("object")})
-        object_rot = ObsTerm(func=base_mdp.root_quat_w, params={"asset_cfg": SceneEntityCfg("object")})
+        robot_joint_vel = ObsTerm(
+            func=base_mdp.joint_vel,
+            params={"asset_cfg": SceneEntityCfg("robot", joint_names=["left_shoulder_pitch_joint", "left_shoulder_roll_joint", 
+                                                                      "left_shoulder_yaw_joint", "left_elbow_pitch_joint", 
+                                                                      "left_wrist_yaw_joint", "left_wrist_roll_joint", "left_wrist_pitch_joint",])},
+        )
+        
+        hand_state = ObsTerm(func=mdp.get_hand_state)
+        
+        # robot_root_pos = ObsTerm(func=base_mdp.root_pos_w, params={"asset_cfg": SceneEntityCfg("robot")})
+        # robot_root_rot = ObsTerm(func=base_mdp.root_quat_w, params={"asset_cfg": SceneEntityCfg("robot")})
+        # object_pos = ObsTerm(func=base_mdp.root_pos_w, params={"asset_cfg": SceneEntityCfg("object")})
+        # object_rot = ObsTerm(func=base_mdp.root_quat_w, params={"asset_cfg": SceneEntityCfg("object")})
 
-        left_eef_pos = ObsTerm(func=mdp.get_left_eef_pos)
-        left_eef_quat = ObsTerm(func=mdp.get_left_eef_quat)
+        # left_eef_pos = ObsTerm(func=mdp.get_left_eef_pos)
+        # left_eef_quat = ObsTerm(func=mdp.get_left_eef_quat)
         # right_eef_pos = ObsTerm(func=mdp.get_right_eef_pos)
         # right_eef_quat = ObsTerm(func=mdp.get_right_eef_quat)
 
@@ -213,12 +209,16 @@ class RewardsCfg:
     """Reward terms for the MDP."""
 
     # -- task
+    track_object_pos = RewTerm(func=mdp.approach_object, weight=5.0)
     # -- penalties
-    dof_torques_l2 = RewTerm(func=mdp.joint_torques_l2, weight=-1.0e-5)
-    dof_acc_l2 = RewTerm(func=mdp.joint_acc_l2, weight=-2.5e-7)
-    action_rate_l2 = RewTerm(func=mdp.action_rate_l2, weight=-0.01)
+    # dof_torques_l2 = RewTerm(func=mdp.joint_torques_l2, weight=-1.0e-9)
+    # dof_acc_l2 = RewTerm(func=mdp.joint_acc_l2, weight=-1.0e-7)
+    action_rate_l2 = RewTerm(func=mdp.action_rate_l2, weight=-0.0001)
     # -- optional penalties
-    dof_pos_limits = RewTerm(func=mdp.joint_pos_limits, weight=0.0)
+    # dof_pos_limits = RewTerm(func=mdp.joint_pos_limits, weight=0.0)
+    
+    success_reach_task = RewTerm(func=mdp.success_reach_task_reward, weight=1.0)
+    termination_penalty = RewTerm(func=mdp.is_terminated, weight=-100.0)
 
 
 @configclass
@@ -259,7 +259,7 @@ class GR1T2PickPlaceEnvCfg(ManagerBasedRLEnvCfg):
     """Configuration for the GR1T2 environment."""
 
     # Scene settings
-    scene: ObjectTableSceneCfg = ObjectTableSceneCfg(num_envs=1000, env_spacing=2.5, replicate_physics=True)
+    scene: ObjectTableSceneCfg = ObjectTableSceneCfg(num_envs=4096, env_spacing=2.5, replicate_physics=True)
     # Basic settings
     observations: ObservationsCfg = ObservationsCfg()
     actions: ActionsCfg = ActionsCfg()
@@ -275,8 +275,8 @@ class GR1T2PickPlaceEnvCfg(ManagerBasedRLEnvCfg):
     def __post_init__(self):
         """Post initialization."""
         # general settings
-        self.decimation = 6
-        self.episode_length_s = 20.0
+        self.decimation = 3
+        self.episode_length_s = 10.0
         # simulation settings
         self.sim.dt = 1 / 120  # 120Hz
-        self.sim.render_interval = 2
+        self.sim.render_interval = 3  # 40Hz
