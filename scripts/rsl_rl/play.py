@@ -10,7 +10,10 @@
 import argparse
 import sys
 
+import isaacsim
+
 from isaaclab.app import AppLauncher
+
 
 # local imports
 import cli_args  # isort: skip
@@ -57,6 +60,8 @@ import gymnasium as gym
 import os
 import time
 import torch
+import isaaclab.sim as sim_utils
+
 
 from rsl_rl.runners import DistillationRunner, OnPolicyRunner
 
@@ -78,6 +83,33 @@ from isaaclab_tasks.utils import get_checkpoint_path
 from isaaclab_tasks.utils.hydra import hydra_task_config
 
 # PLACEHOLDER: Extension template (do not remove this comment)
+
+
+
+
+
+
+class PolicyPlayer:
+    def __init__(self):
+        print("PolicyPlayer initialized")
+        self.models = {
+            "push": "push_model",  # 임시로 문자열 넣기
+            "pick": "pick_model",
+            "place": "place_model"
+        }
+        
+    def rollout_skill(self, skill_name: str, max_steps: int = 200) -> dict:
+        print(f"Executing skill: {skill_name}")
+        
+        if skill_name not in self.models:
+            return {"status": "error", "message": f"Unknown skill: {skill_name}"}
+        
+        # 간단한 실행 시뮬레이션
+        print(f"Running {skill_name} for {max_steps} steps")
+        
+        print(f"Skill '{skill_name}' rollout complete.")
+        return {"status": "success", "message": f"Skill '{skill_name}' executed successfully!"}
+    
 
 
 @hydra_task_config(args_cli.task, args_cli.agent)
@@ -177,6 +209,16 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     # reset environment
     obs = env.get_observations()
     timestep = 0
+
+
+    #policy_player = PolicyPlayer()
+
+    sim_cfg = sim_utils.SimulationCfg(dt=0.01, device=args_cli.device)
+    sim = sim_utils.SimulationContext(sim_cfg)
+
+    policy_player = PolicyPlayer()
+    sim.policy_player = policy_player
+
     # simulate environment
     while simulation_app.is_running():
         start_time = time.time()
@@ -199,8 +241,25 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         if args_cli.real_time and sleep_time > 0:
             time.sleep(sleep_time)
 
+
+
+
+
+
     # close the simulator
     env.close()
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 if __name__ == "__main__":
