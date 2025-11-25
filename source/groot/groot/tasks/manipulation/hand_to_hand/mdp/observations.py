@@ -8,6 +8,8 @@ from __future__ import annotations
 import torch
 from typing import TYPE_CHECKING
 
+import isaaclab.utils.math as math_utils
+
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedRLEnv
 
@@ -132,10 +134,28 @@ def rel_hands(env: ManagerBasedRLEnv) -> torch.Tensor:
     return right - left
 
 
-def get_grasp_flags(env: ManagerBasedRLEnv, dist_th: float = 0.06) -> torch.Tensor:
-    """[N,2] = [left_flag, right_flag] (거리 기반 의사 그립 플래그)"""
-    lh_obj = rel_left_to_object(env)
-    rh_obj = rel_right_to_object(env)
-    lh = (torch.norm(lh_obj, dim=-1) < dist_th).float().unsqueeze(-1)
-    rh = (torch.norm(rh_obj, dim=-1) < dist_th).float().unsqueeze(-1)
-    return torch.cat([lh, rh], dim=-1)
+def get_grasp_flags(env: ManagerBasedRLEnv, dist_th: float = 0.2, z_tol: float = 0.2) -> torch.Tensor:
+    """[N,2] = [left_flag, right_flag] (손바닥 기준 원통 거리 + 느슨한 임계 + 명령)"""
+    # palm positions: hand_pitch_link origin + local -Z offset
+    def _palm_pos(link: str):
+        idx = env.scene["robot"].data.body_names.index(link)
+        pos = env.scene["robot"].data.body_pos_w[:, idx] - env.scene.env_origins
+        quat = env.scene["robot"].data.body_quat_w[:, idx]
+        offset = torch.tensor([0.0, 0.0, -0.06], device=env.device).expand(quat.shape[0], -1)
+        return pos + math_utils.quat_apply(quat, offset)
+
+    left_palm = _palm_pos("left_hand_pitch_link")
+    right_palm = _palm_pos("right_hand_pitch_link")
+    obj_pos = env.scene["object"].data.root_pos_w - env.scene.env_origins
+
+    diff_left = obj_pos - left_palm
+    diff_right = obj_pos - right_palm
+    lh = ((torch.norm(diff_left[:, :2], dim=-1) < dist_th) & (torch.abs(diff_left[:, 2]) < z_tol)).float().unsqueeze(-1)
+    rh = ((torch.norm(diff_right[:, :2], dim=-1) < dist_th) & (torch.abs(diff_right[:, 2]) < z_tol)).float().unsqueeze(-1)
+    flags = torch.cat([lh, rh], dim=-1)
+    # if grasp command exists, require both command and proximity
+    g_cmd = env.extras.get("grasp_cmd", None)
+    if g_cmd is not None:
+        cmd = (g_cmd > 0.5).float()
+        flags = flags * cmd
+    return flags

@@ -3,6 +3,7 @@ from __future__ import annotations
 import torch
 import isaaclab.envs.mdp as base_mdp
 import isaaclab.sim as sim_utils
+from isaaclab.actuators import ImplicitActuatorCfg
 from isaaclab.assets import ArticulationCfg, AssetBaseCfg, RigidObjectCfg
 from isaaclab.envs import ManagerBasedRLEnvCfg
 from isaaclab.managers import EventTermCfg as EventTerm
@@ -46,10 +47,10 @@ class ObjectTableSceneCfg(InteractiveSceneCfg):
 
     object = RigidObjectCfg(
         prim_path="{ENV_REGEX_NS}/Object",
-        init_state=RigidObjectCfg.InitialStateCfg(pos=[-0.30, 0.45, 1.05], rot=[1, 0, 0, 0]),
+        init_state=RigidObjectCfg.InitialStateCfg(pos=[-0.45, 0.45, 1.08], rot=[1.0, 0.0, 0.0, 0.0]),
         spawn=UsdFileCfg(
-            usd_path=f"{ISAACLAB_NUCLEUS_DIR}/Objects/ToyTruck/toy_truck.usd",
-            scale=(1.5, 1.5, 1.5),
+            usd_path=f"{ISAAC_NUCLEUS_DIR}/Props/Beaker/beaker_500ml.usd",
+            scale=(0.4, 0.4, 0.8),
             rigid_props=sim_utils.RigidBodyPropertiesCfg(),
         ),
     )
@@ -61,14 +62,29 @@ class ObjectTableSceneCfg(InteractiveSceneCfg):
             pos=(0, 0, 0.93),
             rot=(0.7071, 0, 0, 0.7071),
             joint_pos={
+                # right hand closed / left hand open by default
+                # slightly relaxed to avoid interpenetration
+                "R_index_.*": -0.74,
+                "R_middle_.*": -0.74,
+                "R_pinky_.*": -1.0,
+                "R_ring_.*": -1.0,
+                "R_thumb_proximal_yaw_joint": -1.73,
+                "R_thumb_proximal_pitch_joint": 0.25,
+                "R_thumb_distal_joint": 0.7,
+                "L_index_.*": 0.0,
+                "L_middle_.*": 0.0,
+                "L_pinky_.*": 0.0,
+                "L_ring_.*": 0.0,
+                "L_thumb_.*": 0.0,
                 # right-arm
-                "right_shoulder_pitch_joint": 0.0,
-                "right_shoulder_roll_joint": 0.0,
+                # lift hand slightly above table to avoid initial impact
+                "right_shoulder_pitch_joint": -0.2,
+                "right_shoulder_roll_joint": 0.15,
                 "right_shoulder_yaw_joint": 0.0,
-                "right_elbow_pitch_joint": -1.5708,
+                "right_elbow_pitch_joint": -1.2,
                 "right_wrist_yaw_joint": 0.0,
                 "right_wrist_roll_joint": 0.0,
-                "right_wrist_pitch_joint": 0.0,
+                "right_wrist_pitch_joint": 0.25,
                 # left-arm
                 "left_shoulder_pitch_joint": 0.0,
                 "left_shoulder_roll_joint": 0.0,
@@ -83,8 +99,6 @@ class ObjectTableSceneCfg(InteractiveSceneCfg):
                 ".*_hip_.*": 0.0,
                 ".*_knee_.*": 0.0,
                 ".*_ankle_.*": 0.0,
-                "R_.*": 0.0,
-                "L_.*": 0.0,
             },
             joint_vel={".*": 0.0},
         ),
@@ -126,35 +140,34 @@ class ObjectTableSceneCfg(InteractiveSceneCfg):
 @configclass
 class ActionsCfg:
     """Action specifications for the MDP."""
-    
-    gr1_left_action = mdp.DifferentialInverseKinematicsActionCfg(
+    symmetric_hands = mdp.SymmetricDualIKActionCfg(
         asset_name="robot",
-        joint_names=[
-            "left_shoulder_pitch_joint", "left_shoulder_roll_joint", "left_shoulder_yaw_joint", "left_elbow_pitch_joint", 
-            "left_wrist_yaw_joint", "left_wrist_roll_joint", "left_wrist_pitch_joint",
+        left_joint_names=[
+            "left_shoulder_pitch_joint",
+            "left_shoulder_roll_joint",
+            "left_shoulder_yaw_joint",
+            "left_elbow_pitch_joint",
+            "left_wrist_yaw_joint",
+            "left_wrist_roll_joint",
+            "left_wrist_pitch_joint",
         ],
-        body_name="left_hand_pitch_link",
+        right_joint_names=[
+            "right_shoulder_pitch_joint",
+            "right_shoulder_roll_joint",
+            "right_shoulder_yaw_joint",
+            "right_elbow_pitch_joint",
+            "right_wrist_yaw_joint",
+            "right_wrist_roll_joint",
+            "right_wrist_pitch_joint",
+        ],
+        left_body_name="left_hand_pitch_link",
+        right_body_name="right_hand_pitch_link",
         body_offset=mdp.DifferentialInverseKinematicsActionCfg.OffsetCfg(
             pos=(0.0, 0.0, -0.085),
-            rot=(1.0, 0.0, 0.0, 0.0)
+            rot=(1.0, 0.0, 0.0, 0.0),
         ),
         scale=0.25,
-        controller=mdp.DifferentialIKControllerCfg(command_type="pose", use_relative_mode=True, ik_method="dls"),
-    )
-
-    gr1_right_action = mdp.DifferentialInverseKinematicsActionCfg(
-        asset_name="robot",
-        joint_names=[
-            "right_shoulder_pitch_joint","right_shoulder_roll_joint","right_shoulder_yaw_joint",
-            "right_elbow_pitch_joint","right_wrist_yaw_joint","right_wrist_roll_joint","right_wrist_pitch_joint",
-        ],
-        body_name="right_hand_pitch_link",
-        body_offset=mdp.DifferentialInverseKinematicsActionCfg.OffsetCfg(
-            pos=(0.0, 0.0, -0.085), 
-            rot=(1.0, 0.0, 0.0, 0.0)
-        ),
-        scale=0.25,
-        controller=mdp.DifferentialIKControllerCfg(command_type="pose", use_relative_mode=True, ik_method="dls"),
+        include_grasp=True,
     )
 
 
@@ -205,11 +218,16 @@ class RewardsCfg:
     dof_pos_limits = RewTerm(func=mdp.joint_pos_limits, weight=0.0)
 
     # hand-to-hand shaping terms
-    left_approach = RewTerm(func=mdp.rew_left_approach, weight=1.0)
-    hands_proximity = RewTerm(func=mdp.rew_hands_proximity, weight=0.5)
+    left_approach = RewTerm(func=mdp.rew_left_approach, weight=2.0)
+    hands_proximity = RewTerm(func=mdp.rew_hands_proximity, weight=3.0)
     align_to_exchange = RewTerm(func=mdp.rew_align_to_exchange, weight=1.0)
     right_stability = RewTerm(func=mdp.rew_right_stability, weight=0.2)
     transfer = RewTerm(func=mdp.rew_transfer, weight=4.0)
+    guarded_transfer = RewTerm(func=mdp.rew_guarded_transfer, weight=1.0)
+    release_penalty = RewTerm(func=mdp.rew_release_penalty, weight=1.0)
+    arm_home = RewTerm(func=mdp.rew_post_handover_arm_home, weight=0.5)
+    post_handover_posture = RewTerm(func=mdp.rew_post_handover_posture, weight=1.0)
+    left_grasp_bonus = RewTerm(func=mdp.rew_left_grasp_bonus, weight=2.0)
 
 
 @configclass
@@ -223,6 +241,7 @@ class TerminationsCfg:
     )
 
     success = DoneTerm(func=mdp.task_done_hand_to_hand)
+    both_off = DoneTerm(func=mdp.both_hands_released)
 
 
 @configclass
@@ -230,19 +249,8 @@ class EventCfg:
     """Configuration for events."""
 
     reset_all = EventTerm(func=mdp.reset_scene_to_default, mode="reset")
-
-    reset_object = EventTerm(
-        func=mdp.reset_root_state_uniform,
-        mode="reset",
-        params={
-            "pose_range": {
-                "x": [-0.02, 0.02],
-                "y": [-0.02, 0.02],
-            },
-            "velocity_range": {},
-            "asset_cfg": SceneEntityCfg("object"),
-        },
-    )
+    jitter_hands = EventTerm(func=mdp.randomize_hand_pose, mode="reset")
+    place_object = EventTerm(func=mdp.place_object_to_right_hand, mode="reset")
 
 
 @configclass
@@ -265,3 +273,23 @@ class GR1T2HandToHandEnvCfg(ManagerBasedRLEnvCfg):
         self.episode_length_s = 20.0
         self.sim.dt = 1 / 120  # 120Hz
         self.sim.render_interval = 2
+
+        # Lock down the waist/trunk to keep torso steady.
+        if "trunk" in self.scene.robot.actuators:
+            trunk = self.scene.robot.actuators["trunk"]
+            trunk.stiffness = 1e9
+            trunk.damping = 1e6
+            trunk.friction = 10.0
+            trunk.velocity_limit = 0.0
+
+        # Strengthen finger actuators for better grip.
+        self.scene.robot.actuators["hands"] = ImplicitActuatorCfg(
+            joint_names_expr=[
+                "L_index_.*", "L_middle_.*", "L_pinky_.*", "L_ring_.*", "L_thumb_.*",
+                "R_index_.*", "R_middle_.*", "R_pinky_.*", "R_ring_.*", "R_thumb_.*",
+            ],
+            stiffness=1500.0,
+            damping=50.0,
+            effort_limit_sim=200.0,
+            velocity_limit_sim=5.0,
+        )

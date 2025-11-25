@@ -5,7 +5,7 @@ from isaaclab_rl.rsl_rl import RslRlOnPolicyRunnerCfg, RslRlPpoActorCriticCfg, R
 @configclass
 class GR1T2BasicPPORunnerCfg(RslRlOnPolicyRunnerCfg):
     num_steps_per_env = 24
-    max_iterations = 1500
+    max_iterations = 3000
     save_interval = 50
     experiment_name = "gr1t2_basic"
     empirical_normalization = False
@@ -29,4 +29,3 @@ class GR1T2BasicPPORunnerCfg(RslRlOnPolicyRunnerCfg):
         desired_kl=0.01,
         max_grad_norm=1.0,
     )
-
