@@ -9,6 +9,27 @@ from isaaclab.managers import SceneEntityCfg
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedRLEnv
 
+def object_height_bonus(env: ManagerBasedRLEnv, min_height: float = 0.8, target_height: float = 1.0) -> torch.Tensor:
+    """Bonus when the object is carried above a safe height."""
+    obj_z = env.scene["object"].data.root_pos_w[:, 2] - env.scene.env_origins[:, 2]
+    bonus = (obj_z - min_height) / max(target_height - min_height, 1e-3)
+    return torch.clamp(bonus, min=0.0, max=1.0)
+
+def rew_clamp_penalty(env: ManagerBasedRLEnv,
+                      hand_dist: float = 0.14,
+                      hand_sep: float = 0.22,
+                      vel_thresh: float = 0.05) -> torch.Tensor:
+    """Penalty when the object is simultaneously close to both hands and hands are close."""
+    left_vec = rel_left_to_object(env)
+    right_vec = rel_right_to_object(env)
+    hands_vec = rel_hands(env)
+    left_close = torch.norm(left_vec, dim=-1) < hand_dist
+    right_close = torch.norm(right_vec, dim=-1) < hand_dist
+    hands_close = torch.norm(hands_vec, dim=-1) < hand_sep
+    obj_vel = torch.norm(env.scene["object"].data.root_vel_w, dim=1)
+    clamped = left_close & right_close & hands_close & (obj_vel < vel_thresh)
+    return -clamped.float()
+
 from .observations import (
     rel_left_to_object,
     rel_right_to_object,

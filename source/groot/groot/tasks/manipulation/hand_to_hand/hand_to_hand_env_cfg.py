@@ -168,6 +168,7 @@ class ActionsCfg:
         ),
         scale=0.25,
         include_grasp=True,
+        center_z_floor=1.0,
     )
 
 
@@ -218,6 +219,10 @@ class RewardsCfg:
     dof_pos_limits = RewTerm(func=mdp.joint_pos_limits, weight=0.0)
 
     # hand-to-hand shaping terms
+    object_height_bonus = RewTerm(
+        func=mdp.object_height_bonus, weight=0.5, params={"min_height": 0.8, "target_height": 1.05}
+    )
+    clamp_penalty = RewTerm(func=mdp.rew_clamp_penalty, weight=1.5)
     left_approach = RewTerm(func=mdp.rew_left_approach, weight=2.0)
     hands_proximity = RewTerm(func=mdp.rew_hands_proximity, weight=3.0)
     align_to_exchange = RewTerm(func=mdp.rew_align_to_exchange, weight=1.0)
@@ -241,6 +246,29 @@ class TerminationsCfg:
     )
 
     success = DoneTerm(func=mdp.task_done_hand_to_hand)
+    object_stuck = DoneTerm(
+        func=mdp.object_stuck,
+        params={
+            "table_height": 0.55,
+            "table_margin": 0.05,
+            "hand_dist": 0.20,
+            "vel_thresh": 0.02,
+            "spawn_band": 0.05,
+            "settle_steps": 30,
+        },
+    )
+    hands_clamped = DoneTerm(
+        func=mdp.object_clamped_between_hands,
+        params={
+            "hand_dist": 0.12,
+            "hand_sep": 0.18,
+            "vel_thresh": 0.01,
+            "z_progress_tol": 0.003,
+            "sep_progress_tol": 0.002,
+            "hand_vel_thresh": 0.05,
+            "settle_steps": 40,
+        },
+    )
     both_off = DoneTerm(func=mdp.both_hands_released)
 
 

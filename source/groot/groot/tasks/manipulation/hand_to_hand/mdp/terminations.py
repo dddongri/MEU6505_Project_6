@@ -39,11 +39,12 @@ def task_done_hand_to_hand(
 
     g_cmd = env.extras.get("grasp_cmd", None)
     handover_mask = env.extras.get("handover_mask", None)
+    # combine command bits with proximity flags so slight command errors don't block success
+    grasp = get_grasp_flags(env, dist_th=grasp_dist)
     if g_cmd is not None:
-        left_on = g_cmd[:, 0] > 0.5
-        right_on = g_cmd[:, 1] > 0.5
+        left_on = (g_cmd[:, 0] > 0.5) | (grasp[:, 0] > 0.5)
+        right_on = (g_cmd[:, 1] > 0.5) | (grasp[:, 1] > 0.5)
     else:
-        grasp = get_grasp_flags(env, dist_th=grasp_dist)
         left_on = grasp[:, 0] > 0.5
         right_on = grasp[:, 1] > 0.5
 
@@ -66,6 +67,118 @@ def task_done_hand_to_hand(
     counter = env.extras.get("success_counter", torch.zeros(env.num_envs, device=env.device, dtype=torch.long))
     counter = torch.where(done_now, counter + 1, torch.zeros_like(counter))
     env.extras["success_counter"] = counter
+    return counter >= settle_steps
+
+
+def object_stuck(
+    env: "ManagerBasedRLEnv",
+    table_height: float = 0.55,
+    table_margin: float = 0.05,
+    hand_dist: float = 0.20,
+    vel_thresh: float = 0.02,
+    z_progress_tol: float = 0.003,
+    spawn_band: float = 0.05,
+    settle_steps: int = 30,
+) -> torch.Tensor:
+    """Terminate if the object is clamped between hands/table without progress."""
+    obj = env.scene["object"]
+    rel_pos = obj.data.root_pos_w - env.scene.env_origins
+    obj_vel = torch.norm(obj.data.root_vel_w, dim=1)
+
+    from .observations import rel_left_to_object, rel_right_to_object
+
+    # near-plane: either around table height or close to spawn height
+    spawn_z = env.extras.get("obj_spawn_z", None)
+    if spawn_z is None:
+        spawn_z = (obj.data.default_root_state[:, 2] - env.scene.env_origins[:, 2]).clone()
+        env.extras["obj_spawn_z"] = spawn_z
+    near_spawn = torch.abs(rel_pos[:, 2] - spawn_z) < spawn_band
+    near_table = rel_pos[:, 2] < (table_height + table_margin)
+    near_plane = near_table | near_spawn
+
+    left_close = torch.norm(rel_left_to_object(env), dim=-1) < hand_dist
+    right_close = torch.norm(rel_right_to_object(env), dim=-1) < hand_dist
+    close_any = left_close | right_close
+
+    prev_z = env.extras.get("prev_obj_z", rel_pos[:, 2].clone())
+    dz = torch.abs(rel_pos[:, 2] - prev_z)
+    env.extras["prev_obj_z"] = rel_pos[:, 2].clone()
+
+    stuck_now = near_plane & close_any & (obj_vel < vel_thresh) & (dz < z_progress_tol)
+
+    step_counter = env.extras.get("step_counter", None)
+    if step_counter is None:
+        warm_mask = torch.ones(env.num_envs, device=env.device, dtype=torch.bool)
+    else:
+        warm_mask = step_counter >= 10
+    stuck_now = stuck_now & warm_mask
+
+    counter = env.extras.get("stuck_counter", torch.zeros(env.num_envs, device=env.device, dtype=torch.long))
+    counter = torch.where(stuck_now, counter + 1, torch.zeros_like(counter))
+    env.extras["stuck_counter"] = counter
+    return counter >= settle_steps
+
+
+def object_clamped_between_hands(
+    env: "ManagerBasedRLEnv",
+    hand_dist: float = 0.12,
+    hand_sep: float = 0.18,
+    vel_thresh: float = 0.01,
+    z_progress_tol: float = 0.003,
+    sep_progress_tol: float = 0.002,
+    hand_vel_thresh: float = 0.05,
+    settle_steps: int = 40,
+) -> torch.Tensor:
+    """Terminate if the object is pinched between both hands with no motion (any height)."""
+    obj = env.scene["object"]
+    obj_vel = torch.norm(obj.data.root_vel_w, dim=1)
+
+    from .observations import rel_left_to_object, rel_right_to_object, rel_hands
+
+    left_vec = rel_left_to_object(env)
+    right_vec = rel_right_to_object(env)
+    hands_vec = rel_hands(env)
+    left_close = torch.norm(left_vec, dim=-1) < hand_dist
+    right_close = torch.norm(right_vec, dim=-1) < hand_dist
+    hands_sep = torch.norm(hands_vec, dim=-1)
+    hands_close = hands_sep < hand_sep
+
+    prev_sep = env.extras.get("prev_hand_sep", hands_sep.clone())
+    env.extras["prev_hand_sep"] = hands_sep.clone()
+    sep_still = torch.abs(hands_sep - prev_sep) < sep_progress_tol
+
+    prev_z = env.extras.get("prev_obj_z_clamp", obj.data.root_pos_w[:, 2].clone())
+    dz = torch.abs((obj.data.root_pos_w[:, 2] - env.scene.env_origins[:, 2]) - prev_z)
+    env.extras["prev_obj_z_clamp"] = (obj.data.root_pos_w[:, 2] - env.scene.env_origins[:, 2]).clone()
+
+    # hand linear velocity
+    robot = env.scene["robot"]
+    names = robot.data.body_names
+    l_idx = names.index("left_hand_pitch_link")
+    r_idx = names.index("right_hand_pitch_link")
+    hand_lin_vel = torch.max(
+        torch.norm(robot.data.body_lin_vel_w[:, l_idx], dim=-1),
+        torch.norm(robot.data.body_lin_vel_w[:, r_idx], dim=-1),
+    )
+    hands_slow = hand_lin_vel < hand_vel_thresh
+
+    stuck_now = (
+        left_close
+        & right_close
+        & hands_close
+        & (obj_vel < vel_thresh)
+        & (dz < z_progress_tol)
+        & sep_still
+        & hands_slow
+    )
+
+    step_counter = env.extras.get("step_counter", None)
+    warm_mask = torch.ones(env.num_envs, device=env.device, dtype=torch.bool) if step_counter is None else step_counter >= 10
+    stuck_now = stuck_now & warm_mask
+
+    counter = env.extras.get("clamp_counter", torch.zeros(env.num_envs, device=env.device, dtype=torch.long))
+    counter = torch.where(stuck_now, counter + 1, torch.zeros_like(counter))
+    env.extras["clamp_counter"] = counter
     return counter >= settle_steps
 
 

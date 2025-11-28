@@ -243,6 +243,27 @@ class SymmetricDualIKAction(ActionTerm):
             self._step_counter[env_ids] = 0
             self._handover_mask[env_ids] = False
         self._env.extras["handover_mask"] = self._handover_mask
+        # reset episode-scoped counters used by terminations
+        zeros_long = torch.zeros(self.num_envs, device=self.device, dtype=torch.long)
+        self._env.extras["success_counter"] = zeros_long.clone()
+        self._env.extras["both_off_counter"] = zeros_long.clone()
+        self._env.extras["stuck_counter"] = zeros_long.clone()
+        self._env.extras["clamp_counter"] = zeros_long.clone()
+        if "prev_obj_z" in self._env.extras:
+            del self._env.extras["prev_obj_z"]
+        if "prev_obj_z_clamp" in self._env.extras:
+            del self._env.extras["prev_obj_z_clamp"]
+        if "prev_hand_sep" in self._env.extras:
+            del self._env.extras["prev_hand_sep"]
+        # cache spawn height for stuck detection
+        try:
+            obj = self._env.scene["object"]
+        except KeyError:
+            obj = None
+        if obj is not None:
+            self._env.extras["obj_spawn_z"] = (
+                obj.data.default_root_state[:, 2] - self._env.scene.env_origins[:, 2]
+            ).clone()
         # default: left open, right closed so object stays in right hand
         open_act = torch.ones((self.num_envs, 1), device=self.device)
         close_act = -torch.ones((self.num_envs, 1), device=self.device)
