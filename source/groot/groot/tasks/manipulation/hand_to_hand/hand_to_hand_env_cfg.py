@@ -220,7 +220,7 @@ class RewardsCfg:
 
     # hand-to-hand shaping terms
     object_height_bonus = RewTerm(
-        func=mdp.object_height_bonus, weight=0.5, params={"min_height": 0.8, "target_height": 1.05}
+        func=mdp.object_height_bonus, weight=1.0, params={"min_height": 0.9, "target_height": 1.1}
     )
     clamp_penalty = RewTerm(func=mdp.rew_clamp_penalty, weight=1.5)
     pre_grasp_crowd_penalty = RewTerm(
@@ -230,7 +230,7 @@ class RewardsCfg:
     )
     close_hands_penalty = RewTerm(func=mdp.rew_close_hands_penalty, weight=2.0, params={"grace_steps": 15})
     post_handover_separation = RewTerm(func=mdp.rew_post_handover_separation, weight=2.5)
-    table_clearance_penalty = RewTerm(func=mdp.rew_table_clearance_penalty, weight=2.0, params={"min_height": 0.7})
+    table_clearance_penalty = RewTerm(func=mdp.rew_table_clearance_penalty, weight=3.0, params={"min_height": 0.9})
     left_approach = RewTerm(func=mdp.rew_left_approach, weight=2.0)
     hands_proximity = RewTerm(func=mdp.rew_hands_proximity, weight=3.0)
     align_to_exchange = RewTerm(func=mdp.rew_align_to_exchange, weight=1.0)
@@ -238,7 +238,7 @@ class RewardsCfg:
     transfer = RewTerm(func=mdp.rew_transfer, weight=4.0)
     guarded_transfer = RewTerm(func=mdp.rew_guarded_transfer, weight=1.0)
     release_penalty = RewTerm(func=mdp.rew_release_penalty, weight=1.0)
-    arm_home = RewTerm(func=mdp.rew_post_handover_arm_home, weight=0.5)
+    arm_home = RewTerm(func=mdp.rew_post_handover_arm_home, weight=2.0)
     post_handover_posture = RewTerm(func=mdp.rew_post_handover_posture, weight=1.0)
     left_grasp_bonus = RewTerm(func=mdp.rew_left_grasp_bonus, weight=2.0)
 

@@ -198,7 +198,9 @@ class SymmetricDualIKAction(ActionTerm):
         right_actions[:, :3] = -right_actions[:, :3]
         right_actions[:, 3:] = -right_actions[:, 3:]
         if self.cfg.decouple_after_handover:
-            right_actions = torch.where(handover_mask, torch.zeros_like(right_actions), right_actions)
+            right_actions = torch.where(
+                handover_mask, right_actions * self.cfg.post_handover_right_scale, right_actions
+            )
             if self.cfg.force_right_open_after_handover and self.cfg.include_grasp:
                 self._grasp[:, 1] = torch.where(
                     handover_mask.squeeze(-1), torch.zeros_like(self._grasp[:, 1]), self._grasp[:, 1]
@@ -314,6 +316,7 @@ class SymmetricDualIKActionCfg(ActionTermCfg):
     warmup_steps: int = 10   # force right hand closed for initial steps
     decouple_after_handover: bool = True  # stop mirroring once left hand takes over
     post_handover_left_scale: float = 0.2  # damp left-hand commands after handover
+    post_handover_right_scale: float = 0.5  # keep some motion on right hand after handover
     force_right_open_after_handover: bool = True
     handover_obj_tol: float = 0.14
     left_gripper_joint_names: list[str] = (

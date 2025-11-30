@@ -250,10 +250,20 @@ def both_hands_released(env: "ManagerBasedRLEnv", dist_th: float = 0.06) -> torc
     if step_counter is None:
         warm_mask = torch.ones_like(both_off, dtype=torch.bool)
     else:
-        warm_mask = step_counter >= 5
+        warm_mask = step_counter >= 10
     both_off = both_off & warm_mask
     # require several consecutive frames off to avoid flicker
     counter = env.extras.get("both_off_counter", torch.zeros_like(both_off, dtype=torch.long))
     counter = torch.where(both_off, counter + 1, torch.zeros_like(counter))
     env.extras["both_off_counter"] = counter
-    return counter >= 2
+    done = counter >= 6
+    if torch.any(done):
+        term_counts = env.extras.get("termination_counts", {})
+        term_counts["both_off"] = term_counts.get("both_off", 0) + int(torch.sum(done))
+        env.extras["termination_counts"] = term_counts
+        last_term = env.extras.get("last_term", [None] * env.num_envs)
+        last_term = list(last_term)
+        for idx in torch.where(done)[0].tolist():
+            last_term[idx] = "both_off"
+        env.extras["last_term"] = last_term
+    return done
