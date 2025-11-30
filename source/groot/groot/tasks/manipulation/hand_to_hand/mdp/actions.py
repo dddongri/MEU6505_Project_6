@@ -144,9 +144,20 @@ class SymmetricDualIKAction(ActionTerm):
 
         dist_left = torch.norm(obj_pos - left, dim=-1)
         warm_ok = self._step_counter >= self.cfg.warmup_steps
+        # Consider handover done when left closed near object AND right opened (or at least not closing).
+        # This avoids triggering post-handover logic while both hands are still squeezing the object.
         ready = warm_ok & left_cmd & (~right_cmd) & (dist_left < self.cfg.handover_obj_tol)
-        self._handover_mask = self._handover_mask | ready
+        prev_mask = self._handover_mask.clone()
+        new_ready = ready & (~prev_mask)
+        self._handover_mask = prev_mask | ready
         self._env.extras["handover_mask"] = self._handover_mask
+        # mark step when handover happened for downstream rewards/terminations
+        if "handover_step" not in self._env.extras:
+            self._env.extras["handover_step"] = torch.full_like(self._step_counter, -1)
+        if torch.any(new_ready):
+            handover_step = self._env.extras["handover_step"]
+            handover_step[new_ready] = self._step_counter[new_ready]
+            self._env.extras["handover_step"] = handover_step
 
     def _compute_center(self):
         """Use current hand positions to define symmetry center; clamp Z above table."""
@@ -249,6 +260,8 @@ class SymmetricDualIKAction(ActionTerm):
         self._env.extras["both_off_counter"] = zeros_long.clone()
         self._env.extras["stuck_counter"] = zeros_long.clone()
         self._env.extras["clamp_counter"] = zeros_long.clone()
+        self._env.extras["pre_crowd_counter"] = zeros_long.clone()
+        self._env.extras["handover_step"] = torch.full_like(zeros_long, -1)
         if "prev_obj_z" in self._env.extras:
             del self._env.extras["prev_obj_z"]
         if "prev_obj_z_clamp" in self._env.extras:

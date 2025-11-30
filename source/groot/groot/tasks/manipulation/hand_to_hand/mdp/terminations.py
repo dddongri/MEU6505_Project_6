@@ -21,11 +21,30 @@ if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedRLEnv
 
 
+def _handover_active(env: "ManagerBasedRLEnv", grasp_dist: float = 0.14) -> torch.Tensor:
+    """Return mask where left is holding and right is released (handover done)."""
+    g_cmd = env.extras.get("grasp_cmd", None)
+    handover_mask = env.extras.get("handover_mask", None)
+    from .observations import get_grasp_flags
+
+    if g_cmd is not None:
+        left_on = g_cmd[:, 0] > 0.5
+        right_on = g_cmd[:, 1] > 0.5
+    else:
+        grasp = get_grasp_flags(env, dist_th=grasp_dist)
+        left_on = grasp[:, 0] > 0.5
+        right_on = grasp[:, 1] > 0.5
+    mask = left_on & (~right_on)
+    if handover_mask is not None:
+        mask = mask | handover_mask
+    return mask
+
+
 def task_done_hand_to_hand(
     env: "ManagerBasedRLEnv",
     object_cfg: SceneEntityCfg = SceneEntityCfg("object"),
-    max_object_vel: float = 0.35,
-    settle_steps: int = 3,
+    max_object_vel: float = 0.5,
+    settle_steps: int = 2,
     grasp_dist: float = 0.14,
 ) -> torch.Tensor:
     # 기준:
@@ -39,11 +58,11 @@ def task_done_hand_to_hand(
 
     g_cmd = env.extras.get("grasp_cmd", None)
     handover_mask = env.extras.get("handover_mask", None)
-    # combine command bits with proximity flags so slight command errors don't block success
     grasp = get_grasp_flags(env, dist_th=grasp_dist)
     if g_cmd is not None:
+        # left: allow proximity or command; right: command only (prevent lingering proximity from blocking success)
         left_on = (g_cmd[:, 0] > 0.5) | (grasp[:, 0] > 0.5)
-        right_on = (g_cmd[:, 1] > 0.5) | (grasp[:, 1] > 0.5)
+        right_on = g_cmd[:, 1] > 0.5
     else:
         left_on = grasp[:, 0] > 0.5
         right_on = grasp[:, 1] > 0.5
@@ -67,6 +86,18 @@ def task_done_hand_to_hand(
     counter = env.extras.get("success_counter", torch.zeros(env.num_envs, device=env.device, dtype=torch.long))
     counter = torch.where(done_now, counter + 1, torch.zeros_like(counter))
     env.extras["success_counter"] = counter
+    term_counts = env.extras.get("termination_counts", {"success": 0})
+    if "last_term" in env.extras:
+        last_term = env.extras["last_term"]
+    else:
+        last_term = [None] * env.num_envs
+    last_term = list(last_term)
+    done_envs = torch.where(counter >= settle_steps)[0]
+    for idx in done_envs.tolist():
+        last_term[idx] = "success"
+    env.extras["last_term"] = last_term
+    term_counts["success"] = term_counts.get("success", 0) + len(done_envs)
+    env.extras["termination_counts"] = term_counts
     return counter >= settle_steps
 
 
@@ -87,14 +118,9 @@ def object_stuck(
 
     from .observations import rel_left_to_object, rel_right_to_object
 
-    # near-plane: either around table height or close to spawn height
-    spawn_z = env.extras.get("obj_spawn_z", None)
-    if spawn_z is None:
-        spawn_z = (obj.data.default_root_state[:, 2] - env.scene.env_origins[:, 2]).clone()
-        env.extras["obj_spawn_z"] = spawn_z
-    near_spawn = torch.abs(rel_pos[:, 2] - spawn_z) < spawn_band
+    # near-plane: around table height only
     near_table = rel_pos[:, 2] < (table_height + table_margin)
-    near_plane = near_table | near_spawn
+    near_plane = near_table
 
     left_close = torch.norm(rel_left_to_object(env), dim=-1) < hand_dist
     right_close = torch.norm(rel_right_to_object(env), dim=-1) < hand_dist
@@ -105,6 +131,9 @@ def object_stuck(
     env.extras["prev_obj_z"] = rel_pos[:, 2].clone()
 
     stuck_now = near_plane & close_any & (obj_vel < vel_thresh) & (dz < z_progress_tol)
+    # don't flag stuck after handover is active
+    handover_active = _handover_active(env, grasp_dist=hand_dist)
+    stuck_now = stuck_now & (~handover_active)
 
     step_counter = env.extras.get("step_counter", None)
     if step_counter is None:
@@ -116,6 +145,19 @@ def object_stuck(
     counter = env.extras.get("stuck_counter", torch.zeros(env.num_envs, device=env.device, dtype=torch.long))
     counter = torch.where(stuck_now, counter + 1, torch.zeros_like(counter))
     env.extras["stuck_counter"] = counter
+    done_envs = torch.where(counter >= settle_steps)[0]
+    if done_envs.numel() > 0:
+        term_counts = env.extras.get("termination_counts", {})
+        term_counts["object_stuck"] = term_counts.get("object_stuck", 0) + len(done_envs)
+        env.extras["termination_counts"] = term_counts
+        if "last_term" in env.extras:
+            last_term = env.extras["last_term"]
+        else:
+            last_term = [None] * env.num_envs
+        last_term = list(last_term)
+        for idx in done_envs.tolist():
+            last_term[idx] = "object_stuck"
+        env.extras["last_term"] = last_term
     return counter >= settle_steps
 
 
@@ -135,6 +177,9 @@ def object_clamped_between_hands(
 
     from .observations import rel_left_to_object, rel_right_to_object, rel_hands
 
+    handover_active = _handover_active(env, grasp_dist=hand_dist)
+    if not torch.any(handover_active):
+        return torch.zeros(env.num_envs, device=env.device, dtype=torch.bool)
     left_vec = rel_left_to_object(env)
     right_vec = rel_right_to_object(env)
     hands_vec = rel_hands(env)
@@ -174,11 +219,24 @@ def object_clamped_between_hands(
 
     step_counter = env.extras.get("step_counter", None)
     warm_mask = torch.ones(env.num_envs, device=env.device, dtype=torch.bool) if step_counter is None else step_counter >= 10
-    stuck_now = stuck_now & warm_mask
+    stuck_now = stuck_now & warm_mask & handover_active
 
     counter = env.extras.get("clamp_counter", torch.zeros(env.num_envs, device=env.device, dtype=torch.long))
     counter = torch.where(stuck_now, counter + 1, torch.zeros_like(counter))
     env.extras["clamp_counter"] = counter
+    done_envs = torch.where(counter >= settle_steps)[0]
+    if done_envs.numel() > 0:
+        term_counts = env.extras.get("termination_counts", {})
+        term_counts["hands_clamped"] = term_counts.get("hands_clamped", 0) + len(done_envs)
+        env.extras["termination_counts"] = term_counts
+        if "last_term" in env.extras:
+            last_term = env.extras["last_term"]
+        else:
+            last_term = [None] * env.num_envs
+        last_term = list(last_term)
+        for idx in done_envs.tolist():
+            last_term[idx] = "hands_clamped"
+        env.extras["last_term"] = last_term
     return counter >= settle_steps
 
 

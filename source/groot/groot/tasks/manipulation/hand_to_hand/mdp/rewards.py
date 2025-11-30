@@ -9,11 +9,13 @@ from isaaclab.managers import SceneEntityCfg
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedRLEnv
 
+
 def object_height_bonus(env: ManagerBasedRLEnv, min_height: float = 0.8, target_height: float = 1.0) -> torch.Tensor:
     """Bonus when the object is carried above a safe height."""
     obj_z = env.scene["object"].data.root_pos_w[:, 2] - env.scene.env_origins[:, 2]
     bonus = (obj_z - min_height) / max(target_height - min_height, 1e-3)
     return torch.clamp(bonus, min=0.0, max=1.0)
+
 
 def rew_clamp_penalty(env: ManagerBasedRLEnv,
                       hand_dist: float = 0.14,
@@ -29,6 +31,112 @@ def rew_clamp_penalty(env: ManagerBasedRLEnv,
     obj_vel = torch.norm(env.scene["object"].data.root_vel_w, dim=1)
     clamped = left_close & right_close & hands_close & (obj_vel < vel_thresh)
     return -clamped.float()
+
+
+def rew_pre_grasp_crowd_penalty(
+    env: ManagerBasedRLEnv,
+    hand_dist: float = 0.12,
+    hand_sep: float = 0.18,
+    dwell_steps: int = 40,
+    warmup_steps: int = 5,
+) -> torch.Tensor:
+    """Penalty before handover if both hands linger crowding the object for too long."""
+    mask = ~_handover_active(env)
+    if not torch.any(mask):
+        return torch.zeros(env.num_envs, device=env.device)
+
+    step_counter = env.extras.get("step_counter", None)
+    if step_counter is None:
+        return torch.zeros(env.num_envs, device=env.device)
+    warm_mask = step_counter >= warmup_steps
+
+    left_vec = rel_left_to_object(env)
+    right_vec = rel_right_to_object(env)
+    hands_vec = rel_hands(env)
+    left_close = torch.norm(left_vec, dim=-1) < hand_dist
+    right_close = torch.norm(right_vec, dim=-1) < hand_dist
+    hands_close = torch.norm(hands_vec, dim=-1) < hand_sep
+    crowded = left_close & right_close & hands_close
+
+    active = mask & warm_mask & crowded
+    counter = env.extras.get("pre_crowd_counter", torch.zeros(env.num_envs, device=env.device, dtype=torch.long))
+    counter = torch.where(active, counter + 1, torch.zeros_like(counter))
+    env.extras["pre_crowd_counter"] = counter
+
+    reward = torch.zeros(env.num_envs, device=env.device)
+    reward[counter >= dwell_steps] = -1.0
+    return reward
+
+def rew_close_hands_penalty(env: ManagerBasedRLEnv,
+                            hand_dist: float = 0.12,
+                            hand_sep: float = 0.18,
+                            grace_steps: int = 15) -> torch.Tensor:
+    """Penalty whenever both hands and the object are crowded after handover."""
+    mask = _handover_active(env)
+    if not torch.any(mask):
+        return torch.zeros(env.num_envs, device=env.device)
+    handover_step = env.extras.get("handover_step", None)
+    step_counter = env.extras.get("step_counter", None)
+    if handover_step is None or step_counter is None:
+        return torch.zeros(env.num_envs, device=env.device)
+    elapsed = step_counter - handover_step
+    grace_mask = elapsed >= grace_steps
+    left_vec = rel_left_to_object(env)
+    right_vec = rel_right_to_object(env)
+    hands_vec = rel_hands(env)
+    left_close = torch.norm(left_vec, dim=-1) < hand_dist
+    right_close = torch.norm(right_vec, dim=-1) < hand_dist
+    hands_close = torch.norm(hands_vec, dim=-1) < hand_sep
+    crowded = left_close & right_close & hands_close
+    reward = torch.zeros(env.num_envs, device=env.device)
+    reward[mask & grace_mask & crowded] = -1.0
+    return reward
+
+
+def _handover_active(env: ManagerBasedRLEnv) -> torch.Tensor:
+    """Return mask where left is holding and right is released (handover done)."""
+    g_cmd = env.extras.get("grasp_cmd", None)
+    handover_mask = env.extras.get("handover_mask", None)
+    if g_cmd is not None:
+        mask = (g_cmd[:, 0] > 0.5) & (g_cmd[:, 1] < 0.5)
+    else:
+        g = get_grasp_flags(env)
+        mask = (g[:, 0] > 0.5) & (g[:, 1] < 0.5)
+    if handover_mask is not None:
+        mask = mask | handover_mask
+    return mask
+
+
+def rew_post_handover_separation(env: ManagerBasedRLEnv,
+                                 target_sep: float = 0.25,
+                                 min_sep: float = 0.18) -> torch.Tensor:
+    """After handover, reward separating hands toward a comfortable distance."""
+    mask = _handover_active(env)
+    if not torch.any(mask):
+        return torch.zeros(env.num_envs, device=env.device)
+    sep = torch.norm(rel_hands(env), dim=-1)
+    cost = torch.clamp(target_sep - sep, min=0.0)
+    reward = torch.zeros(env.num_envs, device=env.device)
+    reward[mask] = -cost[mask]
+    too_close = sep < min_sep
+    reward[mask & too_close] -= (min_sep - sep[mask & too_close]) * 2.0
+    return reward
+
+
+def rew_table_clearance_penalty(env: ManagerBasedRLEnv,
+                                min_height: float = 0.7) -> torch.Tensor:
+    """Penalty when holding the object but keeping it too low (near table)."""
+    mask = _handover_active(env)
+    g_cmd = env.extras.get("grasp_cmd", None)
+    if g_cmd is not None:
+        holding = (g_cmd[:, 0] > 0.5) | (g_cmd[:, 1] > 0.5)
+        mask = mask | holding
+    obj_z = env.scene["object"].data.root_pos_w[:, 2] - env.scene.env_origins[:, 2]
+    low = obj_z < min_height
+    penalty = torch.zeros(env.num_envs, device=env.device)
+    penalty[mask & low] = -(min_height - obj_z[mask & low])
+    return penalty
+
 
 from .observations import (
     rel_left_to_object,
@@ -71,7 +179,10 @@ def rew_right_stability(env: ManagerBasedRLEnv) -> torch.Tensor:
 
 def rew_hands_proximity(env: ManagerBasedRLEnv) -> torch.Tensor:
     rel = rel_hands(env)
-    return -torch.norm(rel, dim=-1)
+    reward = -torch.norm(rel, dim=-1)
+    mask = _handover_active(env)
+    reward = torch.where(mask, torch.zeros_like(reward), reward)
+    return reward
 
 
 def rew_transfer(env: ManagerBasedRLEnv) -> torch.Tensor:

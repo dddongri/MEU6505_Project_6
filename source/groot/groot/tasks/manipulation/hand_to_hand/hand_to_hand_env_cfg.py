@@ -223,6 +223,14 @@ class RewardsCfg:
         func=mdp.object_height_bonus, weight=0.5, params={"min_height": 0.8, "target_height": 1.05}
     )
     clamp_penalty = RewTerm(func=mdp.rew_clamp_penalty, weight=1.5)
+    pre_grasp_crowd_penalty = RewTerm(
+        func=mdp.rew_pre_grasp_crowd_penalty,
+        weight=1.5,
+        params={"dwell_steps": 40, "warmup_steps": 5},
+    )
+    close_hands_penalty = RewTerm(func=mdp.rew_close_hands_penalty, weight=2.0, params={"grace_steps": 15})
+    post_handover_separation = RewTerm(func=mdp.rew_post_handover_separation, weight=2.5)
+    table_clearance_penalty = RewTerm(func=mdp.rew_table_clearance_penalty, weight=2.0, params={"min_height": 0.7})
     left_approach = RewTerm(func=mdp.rew_left_approach, weight=2.0)
     hands_proximity = RewTerm(func=mdp.rew_hands_proximity, weight=3.0)
     align_to_exchange = RewTerm(func=mdp.rew_align_to_exchange, weight=1.0)
@@ -266,7 +274,7 @@ class TerminationsCfg:
             "z_progress_tol": 0.003,
             "sep_progress_tol": 0.002,
             "hand_vel_thresh": 0.05,
-            "settle_steps": 40,
+            "settle_steps": 60,
         },
     )
     both_off = DoneTerm(func=mdp.both_hands_released)
