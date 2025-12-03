@@ -87,15 +87,13 @@ from isaaclab_tasks.utils.hydra import hydra_task_config
 
 
 
-
-
 class PolicyPlayer:
     def __init__(self):
         print("PolicyPlayer initialized")
         self.models = {
-            "push": "push_model",  # 임시로 문자열 넣기
-            "pick": "pick_model",
-            "place": "place_model"
+            #안되는거 보니까 절대좌표로만 되나본데
+            "pick": "/home/qkd/Desktop/MEU6505_Project_6/scripts/rsl_rl/skills/skill_1.pt",#handover_left_to_right, pick_left_hand, place_right_hand
+            "skill_2": "./skills/skill_2.pt",
         }
         
     def rollout_skill(self, skill_name: str, max_steps: int = 200) -> dict:
@@ -103,17 +101,36 @@ class PolicyPlayer:
         
         if skill_name not in self.models:
             return {"status": "error", "message": f"Unknown skill: {skill_name}"}
+        file_path = self.models[skill_name]
         
-        # 간단한 실행 시뮬레이션
-        print(f"Running {skill_name} for {max_steps} steps")
+        if not os.path.exists(file_path):
+            print(f"[Error] File not found at: {file_path}")
+            return {"status": "error", "message": "Checkpoint file not found"}
+
+        try:
+            print(f"Loading checkpoint from: {file_path}")
+            
+            loaded_data = torch.load(file_path, map_location='cpu')
+            
+            # 일단 로드 되는지만 확인 (나중에 직접 불러와서 실행시키는거 짜야됨(play.py에 해당 코드 있어서 복붙해오면 되긴 할듯))
+            if isinstance(loaded_data, dict):
+                print(f"[Success] Checkpoint keys: {list(loaded_data.keys())}")
+            else:
+                print("[Success] Checkpoint loaded (Not a dict, possibly a raw model).")
+
         
-        print(f"Skill '{skill_name}' rollout complete.")
-        return {"status": "success", "message": f"Skill '{skill_name}' executed successfully!"}
+        except Exception as e:
+            print(f"[Error] Failed to load checkpoint: {e}")
+            return {"status": "error", "message": str(e)}
+            
+        print(f"Skill '{skill_name}' rollout setup complete.")
+        return {"status": "success", "message": f"Skill '{skill_name}' loaded successfully!"}
+
     
 
 
 @hydra_task_config(args_cli.task, args_cli.agent)
-def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agent_cfg: RslRlBaseRunnerCfg):
+def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agent_cfg: RslRlBaseRunnerCfg):#
     """Play with RSL-RL agent."""
     # grab task name for checkpoint path
     task_name = args_cli.task.split(":")[-1]
