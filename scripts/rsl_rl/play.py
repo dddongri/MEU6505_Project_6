@@ -73,7 +73,9 @@ from isaaclab.utils.pretrained_checkpoint import get_published_pretrained_checkp
 
 from isaaclab_rl.rsl_rl import RslRlBaseRunnerCfg, RslRlVecEnvWrapper, export_policy_as_jit, export_policy_as_onnx
 
-import groot.tasks  # noqa: F401
+import isaaclab_tasks  # noqa: F401
+import groot.tasks
+
 from isaaclab_tasks.utils import get_checkpoint_path
 from isaaclab_tasks.utils.hydra import hydra_task_config
 
@@ -185,7 +187,12 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
             # agent stepping
             actions = policy(obs)
             # env stepping
-            obs, _, _, _ = env.step(actions)
+            # actions[0] = torch.zeros(7)  # for test
+            # actions[0][0] = 0.1  # for test
+            # print("Actions: ", actions[0])
+            obs, _, dones, _ = env.step(actions)
+            # reset recurrent states for episodes that have terminated
+            policy_nn.reset(dones)
         if args_cli.video:
             timestep += 1
             # Exit the play loop after recording one video

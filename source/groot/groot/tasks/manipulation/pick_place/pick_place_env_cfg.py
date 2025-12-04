@@ -12,7 +12,7 @@ from isaaclab.managers import RewardTermCfg as RewTerm
 from isaaclab.managers import SceneEntityCfg
 from isaaclab.managers import TerminationTermCfg as DoneTerm
 from isaaclab.scene import InteractiveSceneCfg
-from isaaclab.sensors import FrameTransformerCfg
+from isaaclab.sensors import FrameTransformerCfg, ContactSensorCfg
 from isaaclab.sensors.frame_transformer import OffsetCfg
 from isaaclab.sim.spawners.from_files.from_files_cfg import GroundPlaneCfg, UsdFileCfg
 from isaaclab.utils import configclass
@@ -20,7 +20,8 @@ from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR, ISAACLAB_NUCLEUS_DIR
 
 from . import mdp
 
-from isaaclab_assets.robots.fourier import GR1T2_HIGH_PD_CFG  # isort: skip
+from groot.robots.fourier import GR1T2_HIGH_PD_CFG
+# from isaaclab_assets.robots.fourier import GR1T2_HIGH_PD_CFG  # isort: skip
 from isaaclab.markers.config import FRAME_MARKER_CFG  # isort: skip
 
 
@@ -46,10 +47,10 @@ class ObjectTableSceneCfg(InteractiveSceneCfg):
 
     object = RigidObjectCfg(
         prim_path="{ENV_REGEX_NS}/Object",
-        init_state=RigidObjectCfg.InitialStateCfg(pos=[-0.45, 0.45, 1.08], rot=[1, 0, 0, 0]),
+        init_state=RigidObjectCfg.InitialStateCfg(pos=[-0., 0.45, 1.08], rot=[1, 0, 0, 0]),
         spawn=UsdFileCfg(
             usd_path=f"{ISAAC_NUCLEUS_DIR}/Props/Beaker/beaker_500ml.usd",
-            scale=(0.5, 0.5, 0.5),
+            scale=(0.4, 0.4, 0.8),
             rigid_props=sim_utils.RigidBodyPropertiesCfg(),
         ),
     )
@@ -112,11 +113,18 @@ class ObjectTableSceneCfg(InteractiveSceneCfg):
                 prim_path="/World/envs/env_.*/Robot/left_hand_pitch_link",
                 name="left_hand_pitch_link",
                 offset=OffsetCfg(
-                    pos=(0.0, 0.0, -0.085),    # offset to the center of the gripper
-                    rot=(1.0, 0.0, 0.0, 0.0),  # align with end-effector frame
+                    pos=(0.0, -0.075, -0.085),    # offset to the center of the gripper
+                    rot=(0.5, -0.5, 0.5, -0.5),  # align with end-effector frame
                 ),
             ),
         ],
+    )
+
+    # Contact sensors
+    gripper_contact_sensor = ContactSensorCfg(
+        prim_path="/World/envs/env_.*/Robot/left_hand_pitch_link",
+        filter_prim_paths_expr="/World/envs/env_.*/Object",
+        track_air_time=False,
     )
     
     
@@ -136,8 +144,8 @@ class ActionsCfg:
         ],
         body_name="left_hand_pitch_link",
         body_offset=mdp.DifferentialInverseKinematicsActionCfg.OffsetCfg(
-            pos=(0.0, 0.0, -0.085),
-            rot=(1.0, 0.0, 0.0, 0.0)
+            pos=(0.0, -0.075, -0.085),
+            rot=(0.5, -0.5, 0.5, -0.5)
         ),
         scale=0.25,
         controller=mdp.DifferentialIKControllerCfg(command_type="pose", use_relative_mode=True, ik_method="dls"),
@@ -208,17 +216,18 @@ class ObservationsCfg:
 class RewardsCfg:
     """Reward terms for the MDP."""
 
-    # -- task
-    track_object_pos = RewTerm(func=mdp.approach_object, weight=5.0)
-    # -- penalties
-    # dof_torques_l2 = RewTerm(func=mdp.joint_torques_l2, weight=-1.0e-9)
-    # dof_acc_l2 = RewTerm(func=mdp.joint_acc_l2, weight=-1.0e-7)
-    action_rate_l2 = RewTerm(func=mdp.action_rate_l2, weight=-0.0001)
-    # -- optional penalties
-    # dof_pos_limits = RewTerm(func=mdp.joint_pos_limits, weight=0.0)
-    
-    success_reach_task = RewTerm(func=mdp.success_reach_task_reward, weight=1.0)
-    termination_penalty = RewTerm(func=mdp.is_terminated, weight=-100.0)
+    track_object_pos    = RewTerm(func=mdp.approach_object,        weight=4.0)
+    reach_to_object     = RewTerm(func=mdp.reach_to_object,        weight=1.0)
+    grasp_shaping       = RewTerm(func=mdp.approach_grasp_object,  weight=3.0)
+
+    success_reach_task  = RewTerm(func=mdp.success_reach_task_reward,  weight=8.0)
+    success_grasp_task  = RewTerm(func=mdp.success_grasp_task_reward,  weight=12.0)
+    # lift_object         = RewTerm(func=mdp.object_lifted_reward,       weight=15.0)
+
+    dof_acc_l2          = RewTerm(func=mdp.joint_acc_l2,           weight=-1.0e-8)
+    action_rate_l2      = RewTerm(func=mdp.action_rate_l2,         weight=-0.002)
+    termination_penalty = RewTerm(func=mdp.is_terminated,          weight=-50.0)
+    # time_elapsed       = RewTerm(func=mdp.time_elapsed,           weight=-0.005)
 
 
 @configclass
@@ -228,7 +237,7 @@ class TerminationsCfg:
     time_out = DoneTerm(func=mdp.time_out, time_out=True)
 
     object_dropping = DoneTerm(
-        func=mdp.root_height_below_minimum, params={"minimum_height": 0.5, "asset_cfg": SceneEntityCfg("object")}
+        func=mdp.root_height_below_minimum, params={"minimum_height": 1.05, "asset_cfg": SceneEntityCfg("object")}
     )
 
     success = DoneTerm(func=mdp.task_done_pick_place)
@@ -276,7 +285,8 @@ class GR1T2PickPlaceEnvCfg(ManagerBasedRLEnvCfg):
         """Post initialization."""
         # general settings
         self.decimation = 3
-        self.episode_length_s = 10.0
+        self.episode_length_s = 7.5
         # simulation settings
         self.sim.dt = 1 / 120  # 120Hz
         self.sim.render_interval = 3  # 40Hz
+        self.sim.physx.gpu_max_rigid_patch_count = 10 * 2**15  # increase GPU rigid patch count for large environments

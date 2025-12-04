@@ -8,6 +8,8 @@ from __future__ import annotations
 import torch
 from typing import TYPE_CHECKING
 
+from isaaclab.utils.math import quat_conjugate, quat_mul
+
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedRLEnv
 
@@ -25,21 +27,30 @@ def object_obs(
 
     body_pos_w = env.scene["robot"].data.body_pos_w
     left_eef_idx = env.scene["robot"].data.body_names.index("left_hand_pitch_link")
-    right_eef_idx = env.scene["robot"].data.body_names.index("right_hand_pitch_link")
-    left_eef_pos = body_pos_w[:, left_eef_idx] - env.scene.env_origins
-    # right_eef_pos = body_pos_w[:, right_eef_idx] - env.scene.env_origins
+    # right_eef_idx = env.scene["robot"].data.body_names.index("right_hand_pitch_link")
+    left_eef_pos = body_pos_w[:, left_eef_idx] - env.scene["robot"].data.root_pos_w
+    left_eef_ori = env.scene["robot"].data.body_quat_w[:, left_eef_idx]
+    # right_eef_pos = body_pos_w[:, right_eef_idx] - env.scene["robot"].data.root_pos_w
 
-    object_pos = env.scene["object"].data.root_pos_w - env.scene.env_origins
+    object_pos = env.scene["object"].data.root_pos_w - env.scene["robot"].data.root_pos_w
     object_quat = env.scene["object"].data.root_quat_w
 
     left_eef_to_object = object_pos - left_eef_pos
     # right_eef_to_object = object_pos - right_eef_pos
+    
+    # left_eef_rot_error = env.scene.quat_mul(
+    #     quat_conjugate(left_eef_ori),
+    #     object_quat,
+    # )
+    
+    # print("Object Quaternion:", object_quat[0])
 
     return torch.cat(
         (
             object_pos,
             object_quat,
             left_eef_to_object,
+            # left_eef_rot_error
             # right_eef_to_object,
         ),
         dim=1,
@@ -89,11 +100,16 @@ def get_right_eef_quat(
 def get_hand_state(
     env: ManagerBasedRLEnv,
 ) -> torch.Tensor:
-    hand_pos_states = env.scene["ee_frame"].data.target_pos_w[:, 0, :] - env.scene.env_origins
+    hand_pos_states = env.scene["ee_frame"].data.target_pos_w[:, 0, :] - env.scene["robot"].data.root_pos_w
     hand_ori_states = env.scene["ee_frame"].data.target_quat_w[:, 0, :]
     
     # hand_joint_states = env.scene["robot"].data.joint_pos[:, -22:]  # Hand joints are last 22 entries of joint state
 
+    # print("target_pos_w: ", env.scene["ee_frame"].data.target_pos_w[0, 0, :])  # [-0.2238,  0.3406,  1.0976]
+    # print("env.scene.env_origins: ", env.scene["robot"].data.root_pos_w[0])
+    # print("hand_pos_states: ", hand_pos_states[0])
+    # print("hand_ori_states: ", hand_ori_states[0])
+    
     return torch.cat((hand_pos_states, hand_ori_states), dim=1)
 
 
