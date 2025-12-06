@@ -82,14 +82,15 @@ class PolicyPlayer:
         
 
         self.models = {
-            "pick": "/home/qkd/Desktop/MEU6505_Project_6/scripts/rsl_rl/skills/skill_1.pt",
-            "skill_2": "./skills/skill_2.pt",
+            "pick_left_hand": "/home/qkd/Desktop/MEU6505_Project_6/scripts/rsl_rl/skills/skill_1.pt",
+            "place_right_hand": "/home/qkd/Desktop/MEU6505_Project_6/scripts/rsl_rl/skills/skill_1.pt",
+            "hand_over_left_to_right": "/home/qkd/Desktop/MEU6505_Project_6/scripts/rsl_rl/skills/skill_1.pt"
         }
         
         self.policy = None          
         self.is_playing = False     
         self.current_step = 0       
-        self.max_steps = 0          #n스텝동안 실행하게 함
+        self.max_steps = 200          #n스텝동안 실행하게 함(MCP에서 넘겨주는 인수)
 
     def rollout_skill(self, skill_name: str, max_steps: int = 200) -> dict:
         print(f"[PolicyPlayer] Request received: Executing skill '{skill_name}' for {max_steps} steps.")
@@ -130,6 +131,7 @@ class PolicyPlayer:
             self.is_playing = False
             return {"status": "error", "message": str(e)}
 
+    # 루프마다 호출하는 콜백함수(action = policy(obs)를 받아옴)
     def get_action(self, obs):
 
         if self.is_playing and self.policy is not None:
@@ -142,28 +144,15 @@ class PolicyPlayer:
                 
             return action
         
-        # 스킬 실행 중이 아니면(Idle), 0으로 채워진 텐서 반환 (정지 상태)
-        # obs의 배치 크기에 맞춰 zero action 생성
-        # RSL-RL에서 action shape은 보통 env의 action space shape을 따름
         num_envs = obs.shape[0]
-        # action dim을 정확히 알기 위해 env wrapper나 cfg 참조 필요하지만,
-        # 보통 obs -> policy -> action 흐름이므로, 임의의 zero tensor를 만들기보다
-        # 그냥 None을 리턴해서 외부에서 처리하거나, shape을 알면 생성.
-        # 여기서는 가장 안전하게 env.action_space를 통해 shape을 유추합니다.
-        
-        # 주의: RslRlVecEnvWrapper로 감싸져 있으므로 action shape 유추가 필요함
-        # 임시로 정책이 없을 때는 0 텐서를 보내기 위해 이전 action shape을 기억하거나
-        # env.num_actions 정보를 이용해야 함.
-        
-        # 여기서는 RslRlVecEnvWrapper 내부에 num_actions 속성이 있다고 가정 (보통 env.num_actions)
+
         if hasattr(self.env, "num_actions"):
             action_dim = self.env.num_actions
         else:
-            # fallback: env.unwrapped.action_space 등 확인
             try:
                 action_dim = self.env.unwrapped.action_space.shape[0]
             except:
-                action_dim = 12 # Default fallback for many robots, but risky
+                action_dim = 12
                 
         return torch.zeros((num_envs, action_dim), device=self.device)
 

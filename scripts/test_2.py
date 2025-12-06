@@ -128,7 +128,7 @@ def main():
 
     # PolicyPlayer 생성 및 SimulationContext에 연결
     policy_player = PolicyPlayer()
-    sim.policy_player = policy_player  # 이 부분이 중요!
+    sim.policy_player = policy_player
 
 
     # Set main camera
