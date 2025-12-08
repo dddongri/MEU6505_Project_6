@@ -9,9 +9,10 @@ import torch
 from typing import TYPE_CHECKING
 
 import isaaclab.utils.math as math_utils
-import isaaclab.utils.math as math_utils
+import isaaclab.envs.mdp as base_mdp
 import re
 from isaaclab.managers import SceneEntityCfg
+from .rewards import reset_episode_extras
 
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedEnv
@@ -154,3 +155,9 @@ def place_object_to_right_hand(
                 idx_tensor = torch.tensor(idx, device=env.device, dtype=torch.long)
                 targets[env_ids.unsqueeze(-1), idx_tensor] = val
         robot.set_joint_position_target(targets[env_ids], joint_ids=None, env_ids=env_ids)
+
+
+def reset_scene_to_default(env: ManagerBasedEnv, env_ids: torch.Tensor | None = None):
+    """Reset scene and also hard-reset per-episode extras flags/counters."""
+    base_mdp.reset_scene_to_default(env, env_ids)
+    reset_episode_extras(env)

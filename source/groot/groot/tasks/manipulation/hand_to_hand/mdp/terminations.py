@@ -21,6 +21,19 @@ if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedRLEnv
 
 
+def hands_below_min_height(env: "ManagerBasedRLEnv",
+                           min_height: float = 0.75) -> torch.Tensor:
+    """Terminate if either hand drops below a minimum world height."""
+    robot = env.scene["robot"]
+    names = robot.data.body_names
+    li = names.index("left_hand_pitch_link")
+    ri = names.index("right_hand_pitch_link")
+    l_z = robot.data.body_pos_w[:, li, 2] - env.scene.env_origins[:, 2]
+    r_z = robot.data.body_pos_w[:, ri, 2] - env.scene.env_origins[:, 2]
+    low = (l_z < min_height) | (r_z < min_height)
+    return low
+
+
 def _handover_active(env: "ManagerBasedRLEnv", grasp_dist: float = 0.14) -> torch.Tensor:
     """Return mask where left is holding and right is released (handover done)."""
     g_cmd = env.extras.get("grasp_cmd", None)
@@ -236,6 +249,36 @@ def object_clamped_between_hands(
         last_term = list(last_term)
         for idx in done_envs.tolist():
             last_term[idx] = "hands_clamped"
+        env.extras["last_term"] = last_term
+    return counter >= settle_steps
+
+
+def object_at_rest_on_table(
+    env: "ManagerBasedRLEnv",
+    object_cfg: SceneEntityCfg = SceneEntityCfg("object"),
+    vel_thresh: float = 0.05,
+    height_thresh: float = 0.9,
+    settle_steps: int = 10,
+) -> torch.Tensor:
+    """Terminate when object is dropped and comes to rest near the table."""
+    obj: RigidObject = env.scene[object_cfg.name]
+    pos_z = obj.data.root_pos_w[:, 2] - env.scene.env_origins[:, 2]
+    vel = torch.norm(obj.data.root_vel_w, dim=1)
+    low_and_still = (pos_z < height_thresh) & (vel < vel_thresh)
+
+    counter = env.extras.get("rest_counter", torch.zeros(env.num_envs, device=env.device, dtype=torch.long))
+    counter = torch.where(low_and_still, counter + 1, torch.zeros_like(counter))
+    env.extras["rest_counter"] = counter
+
+    done_envs = torch.where(counter >= settle_steps)[0]
+    if done_envs.numel() > 0:
+        term_counts = env.extras.get("termination_counts", {})
+        term_counts["object_at_rest"] = term_counts.get("object_at_rest", 0) + len(done_envs)
+        env.extras["termination_counts"] = term_counts
+        last_term = env.extras.get("last_term", [None] * env.num_envs)
+        last_term = list(last_term)
+        for idx in done_envs.tolist():
+            last_term[idx] = "object_at_rest"
         env.extras["last_term"] = last_term
     return counter >= settle_steps
 

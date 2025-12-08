@@ -4,6 +4,7 @@ import torch
 from dataclasses import MISSING, field
 
 from isaaclab.controllers import DifferentialIKControllerCfg
+import isaaclab.utils.math as math_utils
 from isaaclab.envs.mdp.actions.actions_cfg import (
     DifferentialInverseKinematicsActionCfg,
     BinaryJointPositionActionCfg,
@@ -160,11 +161,11 @@ class SymmetricDualIKAction(ActionTerm):
             self._env.extras["handover_step"] = handover_step
 
     def _compute_center(self):
-        """Use current hand positions to define symmetry center; clamp Z above table."""
-        body_pos_w = self._asset.data.body_pos_w - self._env.scene.env_origins[:, None, :]
-        left = body_pos_w[:, self._asset.data.body_names.index(self.cfg.left_body_name)]
-        right = body_pos_w[:, self._asset.data.body_names.index(self.cfg.right_body_name)]
-        center = 0.5 * (left + right)
+        """Use robot-root-frame offset as symmetry center, transformed to world."""
+        offset = torch.tensor(self.cfg.center_offset, device=self.device).expand(self.num_envs, -1)
+        root_pos = self._asset.data.root_pos_w
+        root_quat = self._asset.data.root_quat_w
+        center = root_pos + math_utils.quat_apply(root_quat, offset)
         center[:, 2] = torch.clamp(center[:, 2], min=self.cfg.center_z_floor)
         return center
 
@@ -193,18 +194,24 @@ class SymmetricDualIKAction(ActionTerm):
         self._left_term.process_actions(task_actions)
         # symmetry center from current hands
         center = self._compute_center()
-        # mirror for right hand: negate pos/rot deltas about center
+        # mirror for right hand: reflect across robot sagittal plane (YZ).
+        # In this robot frame X is forward/back, Y is left/right, so negate Y only.
         right_actions = task_actions.clone()
-        right_actions[:, :3] = -right_actions[:, :3]
-        right_actions[:, 3:] = -right_actions[:, 3:]
+        right_actions[:, 1] = -right_actions[:, 1]
+        if self.cfg.mirror_rotation:
+            right_actions[:, 3:] = -right_actions[:, 3:]
         if self.cfg.decouple_after_handover:
             right_actions = torch.where(
-                handover_mask, right_actions * self.cfg.post_handover_right_scale, right_actions
+                handover_mask,
+                right_actions * self.cfg.post_handover_right_scale,
+                right_actions * self.cfg.pre_handover_right_scale,
             )
             if self.cfg.force_right_open_after_handover and self.cfg.include_grasp:
                 self._grasp[:, 1] = torch.where(
                     handover_mask.squeeze(-1), torch.zeros_like(self._grasp[:, 1]), self._grasp[:, 1]
                 )
+        else:
+            right_actions = right_actions * self.cfg.pre_handover_right_scale
         self._right_term.process_actions(right_actions)
         # drive binary grippers: open=+1, close=-1
         if self._left_grip is not None and self._right_grip is not None and self.cfg.include_grasp:
@@ -263,6 +270,7 @@ class SymmetricDualIKAction(ActionTerm):
         self._env.extras["stuck_counter"] = zeros_long.clone()
         self._env.extras["clamp_counter"] = zeros_long.clone()
         self._env.extras["pre_crowd_counter"] = zeros_long.clone()
+        self._env.extras["rest_counter"] = zeros_long.clone()
         self._env.extras["handover_step"] = torch.full_like(zeros_long, -1)
         if "prev_obj_z" in self._env.extras:
             del self._env.extras["prev_obj_z"]
@@ -312,11 +320,14 @@ class SymmetricDualIKActionCfg(ActionTermCfg):
     freeze_waist: bool = True
     disable_arms: bool =  False
     disable_grasp: bool = False
-    center_z_floor: float = 0.65  # keep symmetry plane above the table
+    center_offset: tuple[float, float, float] = (0.3, 0.0, 0.5)  # offset from robot root in robot frame
+    center_z_floor: float = 0.65  # clamp center Z above this floor if needed
     warmup_steps: int = 10   # force right hand closed for initial steps
-    decouple_after_handover: bool = True  # stop mirroring once left hand takes over
-    post_handover_left_scale: float = 0.2  # damp left-hand commands after handover
-    post_handover_right_scale: float = 0.5  # keep some motion on right hand after handover
+    decouple_after_handover: bool = False  # keep mirroring after handover
+    post_handover_left_scale: float = 1.0  # keep symmetry after handover
+    post_handover_right_scale: float = 1.0  # keep symmetry after handover
+    pre_handover_right_scale: float = 1.0  # before handover, mirror fully so right hand approaches too
+    mirror_rotation: bool = False  # only mirror position by default
     force_right_open_after_handover: bool = True
     handover_obj_tol: float = 0.14
     left_gripper_joint_names: list[str] = (

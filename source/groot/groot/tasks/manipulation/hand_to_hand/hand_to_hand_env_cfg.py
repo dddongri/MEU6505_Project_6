@@ -47,7 +47,7 @@ class ObjectTableSceneCfg(InteractiveSceneCfg):
 
     object = RigidObjectCfg(
         prim_path="{ENV_REGEX_NS}/Object",
-        init_state=RigidObjectCfg.InitialStateCfg(pos=[-0.45, 0.45, 1.08], rot=[1.0, 0.0, 0.0, 0.0]),
+        init_state=RigidObjectCfg.InitialStateCfg(pos=[-5.45, 0.45, 1.08], rot=[1.0, 0.0, 0.0, 0.0]),
         spawn=UsdFileCfg(
             usd_path=f"{ISAAC_NUCLEUS_DIR}/Props/Beaker/beaker_500ml.usd",
             scale=(0.4, 0.4, 0.8),
@@ -169,6 +169,7 @@ class ActionsCfg:
         scale=0.25,
         include_grasp=True,
         center_z_floor=1.0,
+        mirror_rotation=False,  # mirror only position (plane symmetry), keep rotations independent
     )
 
 
@@ -213,34 +214,72 @@ class ObservationsCfg:
 class RewardsCfg:
     """Reward terms for the MDP."""
 
-    dof_torques_l2 = RewTerm(func=mdp.joint_torques_l2, weight=-1.0e-5)
-    dof_acc_l2 = RewTerm(func=mdp.joint_acc_l2, weight=-2.5e-7)
-    action_rate_l2 = RewTerm(func=mdp.action_rate_l2, weight=-0.01)
-    dof_pos_limits = RewTerm(func=mdp.joint_pos_limits, weight=0.0)
+    alive = RewTerm(func=mdp.rew_alive, weight=0.2)
 
-    # hand-to-hand shaping terms
-    object_height_bonus = RewTerm(
-        func=mdp.object_height_bonus, weight=1.0, params={"min_height": 0.9, "target_height": 1.1}
+    # Smoothness
+    # Penalize fast action changes (func returns negative cost)
+    action_rate_l2 = RewTerm(func=mdp.action_rate_l2, weight=0.001)
+
+    # Handover shaping
+    right_hold = RewTerm(func=mdp.rew_right_hold, weight=4.0, params={"dist_th": 0.07})
+    # approach terms return negative distance; keep positive weights to encourage proximity
+    left_approach = RewTerm(func=mdp.rew_left_approach_simple, weight=3.0, params={"min_height": 0.85})
+    hands_proximity = RewTerm(func=mdp.rew_hands_proximity, weight=2.0, params={"min_height": 0.85})
+    hand_front_penalty = RewTerm(func=mdp.rew_hand_front_penalty, weight=3.0, params={"min_x": 0.12, "gate_height": 0.86})
+    palm_sagittal = RewTerm(
+        func=mdp.rew_palm_sagittal,
+        weight=0.5,
+        params={"palm_offset": 0.06, "warmup_steps": 12, "min_height": 0.86, "hand_sep_max": 0.28},
     )
-    clamp_penalty = RewTerm(func=mdp.rew_clamp_penalty, weight=1.5)
-    pre_grasp_crowd_penalty = RewTerm(
-        func=mdp.rew_pre_grasp_crowd_penalty,
+    palm_inward = RewTerm(
+        func=mdp.rew_palm_inward,
         weight=1.5,
-        params={"dwell_steps": 40, "warmup_steps": 5},
+        params={"warmup_steps": 12, "min_height": 0.86, "thresh": 0.2, "hand_sep_max": 0.28},
     )
-    close_hands_penalty = RewTerm(func=mdp.rew_close_hands_penalty, weight=2.0, params={"grace_steps": 15})
-    post_handover_separation = RewTerm(func=mdp.rew_post_handover_separation, weight=2.5)
-    table_clearance_penalty = RewTerm(func=mdp.rew_table_clearance_penalty, weight=3.0, params={"min_height": 0.9})
-    left_approach = RewTerm(func=mdp.rew_left_approach, weight=2.0)
-    hands_proximity = RewTerm(func=mdp.rew_hands_proximity, weight=3.0)
-    align_to_exchange = RewTerm(func=mdp.rew_align_to_exchange, weight=1.0)
-    right_stability = RewTerm(func=mdp.rew_right_stability, weight=0.2)
-    transfer = RewTerm(func=mdp.rew_transfer, weight=4.0)
-    guarded_transfer = RewTerm(func=mdp.rew_guarded_transfer, weight=1.0)
-    release_penalty = RewTerm(func=mdp.rew_release_penalty, weight=1.0)
-    arm_home = RewTerm(func=mdp.rew_post_handover_arm_home, weight=2.0)
-    post_handover_posture = RewTerm(func=mdp.rew_post_handover_posture, weight=1.0)
-    left_grasp_bonus = RewTerm(func=mdp.rew_left_grasp_bonus, weight=2.0)
+    palm_alignment = RewTerm(
+        func=mdp.rew_palm_alignment,
+        weight=6.0,
+        params={"palm_offset": 0.06, "near_thresh": 0.18, "hand_sep_thresh": 0.25, "warmup_steps": 18},
+    )
+    left_grasp_ready = RewTerm(func=mdp.rew_left_grasp_ready, weight=4.0, params={"dist_th": 0.07})
+    dual_hold = RewTerm(func=mdp.rew_dual_hold_bonus, weight=4.0, params={"dist_th": 0.07})
+    guarded_transfer = RewTerm(func=mdp.rew_guarded_transfer, weight=2.0)
+    # keep per-step success small; one-shot bonuses carry the big signal
+    transfer_success = RewTerm(func=mdp.rew_transfer_success, weight=1.0, params={"vel_thresh": 0.25, "min_height": 0.7})
+    left_hold_stable = RewTerm(func=mdp.rew_left_hold_stable, weight=3.0)
+    close_bonus = RewTerm(
+        func=mdp.rew_close_bonus,
+        weight=60.0,
+        params={"hand_obj_thresh": 0.11, "hand_sep_thresh": 0.21, "min_height": 0.86, "vel_thresh": 0.22},
+    )
+    handover_bonus = RewTerm(
+        func=mdp.rew_handover_bonus,
+        weight=90.0,
+        params={"vel_thresh": 0.22, "min_height": 0.82, "palm_align_thresh": 0.10},
+    )
+    hand_height_band = RewTerm(
+        func=mdp.rew_hand_height_band_penalty,
+        weight=12.0,
+        params={"min_height": 0.92, "max_height": 1.15, "weight_high": 1.0},
+    )
+    hands_low_guard = RewTerm(func=mdp.rew_hands_low_termination_guard, weight=2.0)
+    height_shaping = RewTerm(
+        func=mdp.rew_height_shaping_banded,
+        weight=2.5,
+        params={"min_height": 0.88, "target_height": 1.08, "max_height": 1.18},
+    )
+    object_height_penalty = RewTerm(func=mdp.rew_object_height_penalty, weight=18.0, params={"min_height": 0.83})
+    object_low_guard = RewTerm(func=mdp.rew_object_low_termination_guard, weight=2.0)
+    object_upright = RewTerm(func=mdp.rew_object_upright, weight=0.5)
+    release_penalty = RewTerm(func=mdp.rew_release_penalty, weight=6.0, params={"dist_th": 0.06})
+    exchange_zone = RewTerm(
+        func=mdp.rew_exchange_zone,
+        weight=20.0,
+        params={"target_offset": (0.25, 0.0, 0.1), "sigma": 0.08, "obj_height_min": 0.85, "hand_obj_thresh": 0.12},
+    )
+    # post-handover cleanup
+    post_handover_separation = RewTerm(func=mdp.rew_post_handover_separation, weight=1.5)
+    post_handover_arm_home = RewTerm(func=mdp.rew_post_handover_arm_home, weight=1.0)
 
 
 @configclass
@@ -254,6 +293,7 @@ class TerminationsCfg:
     )
 
     success = DoneTerm(func=mdp.task_done_hand_to_hand)
+    hands_too_low = DoneTerm(func=mdp.hands_below_min_height, params={"min_height": 0.85})
     object_stuck = DoneTerm(
         func=mdp.object_stuck,
         params={
@@ -277,6 +317,10 @@ class TerminationsCfg:
             "settle_steps": 60,
         },
     )
+    object_at_rest = DoneTerm(
+        func=mdp.object_at_rest_on_table,
+        params={"vel_thresh": 0.05, "height_thresh": 0.9, "settle_steps": 10},
+    )
     both_off = DoneTerm(func=mdp.both_hands_released)
 
 
@@ -285,8 +329,10 @@ class EventCfg:
     """Configuration for events."""
 
     reset_all = EventTerm(func=mdp.reset_scene_to_default, mode="reset")
+    reset_extras = EventTerm(func=mdp.reset_episode_extras, mode="reset")
     jitter_hands = EventTerm(func=mdp.randomize_hand_pose, mode="reset")
     place_object = EventTerm(func=mdp.place_object_to_right_hand, mode="reset")
+    tick_counter = EventTerm(func=mdp.inc_step_counter, mode="step")
 
 
 @configclass
@@ -306,7 +352,7 @@ class GR1T2HandToHandEnvCfg(ManagerBasedRLEnvCfg):
     def __post_init__(self):
         """Post initialization."""
         self.decimation = 6
-        self.episode_length_s = 20.0
+        self.episode_length_s = 20.0 / 9
         self.sim.dt = 1 / 120  # 120Hz
         self.sim.render_interval = 2
 
