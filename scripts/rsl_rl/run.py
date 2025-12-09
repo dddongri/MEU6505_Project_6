@@ -82,7 +82,7 @@ class PolicyPlayer:
         
 
         self.models = {
-            "pick_left_hand": "/home/qkd/Desktop/MEU6505_Project_6/scripts/rsl_rl/skills/skill_1.pt",
+            "pick_left_hand": "/home/qkd/Desktop/MEU6505_Project_6/scripts/rsl_rl/skills/skill_2.pt",
             "place_right_hand": "/home/qkd/Desktop/MEU6505_Project_6/scripts/rsl_rl/skills/skill_1.pt",
             "hand_over_left_to_right": "/home/qkd/Desktop/MEU6505_Project_6/scripts/rsl_rl/skills/skill_1.pt"
         }
@@ -90,7 +90,7 @@ class PolicyPlayer:
         self.policy = None          
         self.is_playing = False     
         self.current_step = 0       
-        self.max_steps = 200          #n스텝동안 실행하게 함(MCP에서 넘겨주는 인수)
+        self.max_steps = 0          #n스텝동안 실행하게 함(MCP에서 넘겨주는 인수)
 
     def rollout_skill(self, skill_name: str, max_steps: int = 200) -> dict:
         print(f"[PolicyPlayer] Request received: Executing skill '{skill_name}' for {max_steps} steps.")
@@ -138,6 +138,12 @@ class PolicyPlayer:
             action = self.policy(obs)
             self.current_step += 1
             
+
+
+
+            if self.current_step % 10 == 0: # 로그 너무 많이 뜨지 않게 조절
+                print(f"[Debug] Step {self.current_step}: Action Mean={action.mean().item():.4f}, Max={action.max().item():.4f}")
+            
             if self.current_step >= self.max_steps:
                 print(f"[PolicyPlayer] Skill execution finished ({self.max_steps} steps). Returning to idle.")
                 self.is_playing = False
@@ -176,9 +182,20 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
 
     policy_player = PolicyPlayer(env, agent_cfg, device=env.unwrapped.device)
     
-    sim_cfg = sim_utils.SimulationCfg(dt=0.01, device=args_cli.device)
-    sim = sim_utils.SimulationContext(sim_cfg)
-    sim.policy_player = policy_player 
+    #sim_cfg = sim_utils.SimulationCfg(dt=0.01, device=args_cli.device)
+    #sim = sim_utils.SimulationContext(sim_cfg)
+    #sim.policy_player = policy_player 
+    
+    sim_context = sim_utils.SimulationContext.instance()
+
+    # 가져온 기존 컨텍스트에 policy_player를 등록합니다.
+    if sim_context is not None:
+        sim_context.policy_player = policy_player
+    else:
+        print("[Error] Simulation Context is not initialized!")
+
+    obs = env.get_observations()
+
 
     obs = env.get_observations()
     
