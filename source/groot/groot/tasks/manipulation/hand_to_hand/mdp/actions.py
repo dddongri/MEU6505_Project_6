@@ -59,7 +59,6 @@ class SymmetricDualIKAction(ActionTerm):
         self._raw_actions = torch.zeros((self.num_envs, self.action_dim), device=self.device)
         self._grasp = torch.zeros((self.num_envs, 2), device=self.device)
         self._step_counter = torch.zeros(self.num_envs, device=self.device, dtype=torch.long)
-        self._handover_mask = torch.zeros(self.num_envs, device=self.device, dtype=torch.bool)
         self._left_body_id = self._asset.data.body_names.index(cfg.left_body_name)
         self._right_body_id = self._asset.data.body_names.index(cfg.right_body_name)
         # optionally freeze waist joints to keep torso steady
@@ -125,41 +124,6 @@ class SymmetricDualIKAction(ActionTerm):
             parts.extend([self._left_grip.processed_actions, self._right_grip.processed_actions])
         return torch.cat(parts, dim=1)
 
-    def _update_handover_mask(self):
-        """Sticky flag once left closes and right opens near the object."""
-        if not self.cfg.decouple_after_handover:
-            self._handover_mask[:] = False
-            self._env.extras["handover_mask"] = self._handover_mask
-            return
-
-        if not self.cfg.include_grasp:
-            self._handover_mask[:] = False
-            self._env.extras["handover_mask"] = self._handover_mask
-            return
-
-        left_cmd = self._grasp[:, 0] > 0.5
-        right_cmd = self._grasp[:, 1] > 0.5
-        obj_pos = self._env.scene["object"].data.root_pos_w - self._env.scene.env_origins
-        body_pos = self._asset.data.body_pos_w - self._env.scene.env_origins[:, None, :]
-        left = body_pos[:, self._left_body_id]
-
-        dist_left = torch.norm(obj_pos - left, dim=-1)
-        warm_ok = self._step_counter >= self.cfg.warmup_steps
-        # Consider handover done when left closed near object AND right opened (or at least not closing).
-        # This avoids triggering post-handover logic while both hands are still squeezing the object.
-        ready = warm_ok & left_cmd & (~right_cmd) & (dist_left < self.cfg.handover_obj_tol)
-        prev_mask = self._handover_mask.clone()
-        new_ready = ready & (~prev_mask)
-        self._handover_mask = prev_mask | ready
-        self._env.extras["handover_mask"] = self._handover_mask
-        # mark step when handover happened for downstream rewards/terminations
-        if "handover_step" not in self._env.extras:
-            self._env.extras["handover_step"] = torch.full_like(self._step_counter, -1)
-        if torch.any(new_ready):
-            handover_step = self._env.extras["handover_step"]
-            handover_step[new_ready] = self._step_counter[new_ready]
-            self._env.extras["handover_step"] = handover_step
-
     def _compute_center(self):
         """Use robot-root-frame offset as symmetry center, transformed to world."""
         offset = torch.tensor(self.cfg.center_offset, device=self.device).expand(self.num_envs, -1)
@@ -183,9 +147,7 @@ class SymmetricDualIKAction(ActionTerm):
             # warmup: force right closed, left open for initial steps
             warm_mask = (self._step_counter < self.cfg.warmup_steps).unsqueeze(-1)
             self._grasp = torch.where(warm_mask, torch.tensor([0.0, 1.0], device=self.device), self._grasp)
-        # latch handover state once left closed and right opened near object
-        self._update_handover_mask()
-        handover_mask = self._handover_mask.unsqueeze(-1)
+        handover_mask = torch.zeros((self.num_envs, 1), device=self.device, dtype=torch.bool)
         if self.cfg.decouple_after_handover and self.cfg.post_handover_left_scale < 1.0:
             task_actions = torch.where(
                 handover_mask, task_actions * self.cfg.post_handover_left_scale, task_actions
@@ -220,8 +182,7 @@ class SymmetricDualIKAction(ActionTerm):
                 right_bin = torch.where(self._grasp[:, 1:2] > 0.5, -torch.ones_like(self._grasp[:, 1:2]), torch.ones_like(self._grasp[:, 1:2]))
                 self._left_grip.process_actions(left_bin)
                 self._right_grip.process_actions(right_bin)
-        # expose grasp command to extras for downstream logging/reward if desired
-        self._env.extras["grasp_cmd"] = self._grasp
+        # no grasp command exposure to extras (handled purely within the action term)
 
     def apply_actions(self):
         if self._disable_arms:
@@ -258,35 +219,8 @@ class SymmetricDualIKAction(ActionTerm):
         # reset step counter
         if env_ids is None:
             self._step_counter[:] = 0
-            self._handover_mask[:] = False
         else:
             self._step_counter[env_ids] = 0
-            self._handover_mask[env_ids] = False
-        self._env.extras["handover_mask"] = self._handover_mask
-        # reset episode-scoped counters used by terminations
-        zeros_long = torch.zeros(self.num_envs, device=self.device, dtype=torch.long)
-        self._env.extras["success_counter"] = zeros_long.clone()
-        self._env.extras["both_off_counter"] = zeros_long.clone()
-        self._env.extras["stuck_counter"] = zeros_long.clone()
-        self._env.extras["clamp_counter"] = zeros_long.clone()
-        self._env.extras["pre_crowd_counter"] = zeros_long.clone()
-        self._env.extras["rest_counter"] = zeros_long.clone()
-        self._env.extras["handover_step"] = torch.full_like(zeros_long, -1)
-        if "prev_obj_z" in self._env.extras:
-            del self._env.extras["prev_obj_z"]
-        if "prev_obj_z_clamp" in self._env.extras:
-            del self._env.extras["prev_obj_z_clamp"]
-        if "prev_hand_sep" in self._env.extras:
-            del self._env.extras["prev_hand_sep"]
-        # cache spawn height for stuck detection
-        try:
-            obj = self._env.scene["object"]
-        except KeyError:
-            obj = None
-        if obj is not None:
-            self._env.extras["obj_spawn_z"] = (
-                obj.data.default_root_state[:, 2] - self._env.scene.env_origins[:, 2]
-            ).clone()
         # default: left open, right closed so object stays in right hand
         open_act = torch.ones((self.num_envs, 1), device=self.device)
         close_act = -torch.ones((self.num_envs, 1), device=self.device)
