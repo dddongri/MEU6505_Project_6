@@ -3,6 +3,7 @@ from __future__ import annotations
 import torch
 
 from isaaclab.envs import ManagerBasedRLEnv
+import isaaclab.utils.math as math_utils
 
 from .mdp.observations import get_left_eef_pos, get_right_eef_pos
 
@@ -27,6 +28,11 @@ class GR1T2HandToHandEnv(ManagerBasedRLEnv):
             ref_r = self.extras.get("ref_right_ee_pos", None)
             step_counter = self.extras.get("step_counter", None)
 
+            if getattr(self.cfg, "log_traj_csv", False):
+                # Fallback inline call to ensure per-step logging even if event ordering skips
+                from . import mdp
+                mdp.log_traj_step_ref_cur(self)
+
             if ref_r is None or step_counter is None:
                 return super().step(new_actions)
 
@@ -36,10 +42,13 @@ class GR1T2HandToHandEnv(ManagerBasedRLEnv):
 
             cur_r = get_right_eef_pos(self)
             cur_l = get_left_eef_pos(self)
+            root_quat = self.scene["robot"].data.root_quat_w
 
             tgt_r = ref_r[arng, idx]
 
-            delta_r = torch.clamp((tgt_r - cur_r) * 3.0, min=-1.0, max=1.0)
+            err_world = tgt_r - cur_r
+            err_root = math_utils.quat_rotate_inverse(root_quat, err_world)
+            delta_r = torch.clamp(err_root * 3.0, min=-1.0, max=1.0)
 
             delta_l = delta_r.clone()
             delta_l[:, 1] *= -1.0

@@ -64,6 +64,14 @@ def reset_episode_extras(env: ManagerBasedRLEnv, env_ids: torch.Tensor | None = 
             pass
     env.extras["traj_csv_f"] = None
     env.extras["traj_csv_w"] = None
+    if env.extras.get("traj_step_f") is not None:
+        try:
+            env.extras["traj_step_f"].close()
+        except Exception:
+            pass
+    env.extras["traj_step_f"] = None
+    env.extras["traj_step_w"] = None
+    env.extras["traj_step_path"] = None
 
 
 def inc_step_counter(env: ManagerBasedRLEnv, env_ids: torch.Tensor | None = None):
@@ -87,6 +95,12 @@ def _init_traj_handles(env: ManagerBasedRLEnv):
         extras["traj_csv_ep"] = -1
     if "traj_csv_done" not in extras:
         extras["traj_csv_done"] = False
+    if "traj_step_f" not in extras:
+        extras["traj_step_f"] = None
+    if "traj_step_w" not in extras:
+        extras["traj_step_w"] = None
+    if "traj_step_path" not in extras:
+        extras["traj_step_path"] = None
 
 
 def log_traj_csv_step(env: ManagerBasedRLEnv, env_ids: torch.Tensor | None = None):
@@ -133,6 +147,24 @@ def log_traj_csv_step(env: ManagerBasedRLEnv, env_ids: torch.Tensor | None = Non
             "T_ref",
             "phase_a",
             "phase_b",
+        ]
+    )
+
+    # 준비: 스텝별 ref/cur 로깅 파일도 미리 열어 헤더만 써둔다.
+    step_path = os.path.join(log_dir, f"traj_step_env{dbg_id}_ep{env.extras['traj_csv_ep']}.csv")
+    env.extras["traj_step_path"] = step_path
+    with open(step_path, "w", newline="") as f_step:
+        w_step = csv.writer(f_step)
+        w_step.writerow(
+        [
+            "t",
+            "ref_x",
+            "ref_y",
+            "ref_z",
+            "cur_x",
+            "cur_y",
+            "cur_z",
+            "err_norm",
         ]
     )
 
@@ -185,6 +217,76 @@ def log_traj_csv_step(env: ManagerBasedRLEnv, env_ids: torch.Tensor | None = Non
     env.extras["traj_csv_w"] = None
     env.extras["traj_csv_done"] = True
 
+
+def log_traj_step_ref_cur(env: ManagerBasedRLEnv, env_ids: torch.Tensor | None = None):
+    """Per-step logging of ref/current right-hand pose for a single env."""
+    if not getattr(env.cfg, "log_traj_csv", False):
+        return
+
+    _init_traj_handles(env)
+
+    step_counter = env.extras.get("step_counter")
+    ref_r = env.extras.get("ref_right_ee_pos")
+    if step_counter is None or ref_r is None:
+        return
+
+    dbg_id = int(getattr(env.cfg, "log_traj_env_id", 0))
+    if dbg_id < 0 or dbg_id >= ref_r.shape[0] or dbg_id >= step_counter.shape[0]:
+        return
+
+    t = int(step_counter[dbg_id].item())
+
+    if env.extras.get("traj_step_path") is None:
+        log_dir = getattr(env.cfg, "log_traj_dir", "logs/hand2hand_traj")
+        os.makedirs(log_dir, exist_ok=True)
+        ep = env.extras.get("traj_csv_ep", -1)
+        path = os.path.join(log_dir, f"traj_step_env{dbg_id}_ep{ep}.csv")
+        env.extras["traj_step_path"] = path
+        with open(path, "w", newline="") as f_step:
+            w_step = csv.writer(f_step)
+            w_step.writerow(
+                [
+                    "t",
+                    "ref_x",
+                    "ref_y",
+                    "ref_z",
+                    "cur_x",
+                    "cur_y",
+                    "cur_z",
+                    "err_norm",
+                ]
+            )
+
+    T_episode = ref_r.shape[1]
+    t_clamped = max(0, min(t, T_episode - 1))
+    ref_p = ref_r[dbg_id, t_clamped]
+
+    from .observations import get_right_eef_pos
+
+    cur_all = get_right_eef_pos(env)
+    if cur_all is None or cur_all.shape[0] <= dbg_id:
+        return
+    cur_p = cur_all[dbg_id]
+
+    err = torch.norm(ref_p - cur_p).item()
+
+    path = env.extras.get("traj_step_path", None)
+    if path is None:
+        return
+    with open(path, "a", newline="") as f_step:
+        w_step = csv.writer(f_step)
+        w_step.writerow(
+            [
+                t_clamped,
+                float(ref_p[0]),
+                float(ref_p[1]),
+                float(ref_p[2]),
+                float(cur_p[0]),
+                float(cur_p[1]),
+                float(cur_p[2]),
+                float(err),
+            ]
+        )
 
 def build_right_arm_reference_trajectory_legacy(env: ManagerBasedRLEnv, env_ids: torch.Tensor | None = None):
     """
@@ -328,7 +430,7 @@ def build_right_arm_reference_trajectory(env: ManagerBasedRLEnv, env_ids: torch.
 
     # Phase B target: sternum vicinity relative to robot root
     # (front centerline)
-    sternum_offset = torch.tensor([0.10, 0.0, 0.12], device=device).expand(ids.numel(), -1)
+    sternum_offset = torch.tensor([0.20, -0.1, 0.12], device=device).expand(ids.numel(), -1)
     sternum_target = root_pos[ids] + math_utils.quat_apply(root_quat[ids], sternum_offset)
     sternum_target[:, 2] = CHEST_Z_LOCAL
 

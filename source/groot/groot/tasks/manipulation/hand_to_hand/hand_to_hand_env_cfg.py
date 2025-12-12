@@ -209,6 +209,7 @@ class EventCfg:
     build_right_arm_reference = EventTerm(func=mdp.build_right_arm_reference_trajectory, mode="reset")
     log_traj_csv = EventTerm(func=mdp.log_traj_csv_step, mode="reset")
     tick_counter = EventTerm(func=mdp.inc_step_counter, mode="step")
+    log_traj_step = EventTerm(func=mdp.log_traj_step_ref_cur, mode="step")
 
 
 @configclass
@@ -218,9 +219,9 @@ class GR1T2HandToHandEnvCfg(ManagerBasedRLEnvCfg):
     scene: ObjectTableSceneCfg = ObjectTableSceneCfg(num_envs=1000, env_spacing=2.5, replicate_physics=True)
     observations: ObservationsCfg = ObservationsCfg()
     actions: ActionsCfg = ActionsCfg()
-    debug_ik_follow: bool = True
+    debug_ik_follow: bool = False
     # trajectory CSV logging (debug)
-    log_traj_csv: bool = True
+    log_traj_csv: bool = False
     log_traj_env_id: int = 0
     log_traj_dir: str = "logs/hand2hand_traj"
     log_traj_write_every: int = 1
