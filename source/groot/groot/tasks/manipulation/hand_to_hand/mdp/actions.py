@@ -16,16 +16,15 @@ from isaaclab.utils import configclass
 
 
 class SymmetricDualIKAction(ActionTerm):
-    """Task-space IK for both hands with enforced point symmetry and binary grasp commands.
+    """Task-space IK for both hands with binary grasp commands.
 
     Action layout:
-        [0:6] : left hand differential IK command (position/orientation velocity)
-        [6]   : left grasp (binary after sigmoid)
-        [7]   : right grasp (binary after sigmoid)
-
-    The right hand command is mirrored from the left by negating translational/rotational
-    components, which reduces the controllable DOF while keeping hands symmetric about the
-    object center.
+        [0:3]   : left hand position delta
+        [3:6]   : left hand rotation delta (axis-angle / rot-vec)
+        [6:9]   : right hand position delta
+        [9:12]  : right hand rotation delta
+        [12]    : left grasp (binary after clamp)
+        [13]    : right grasp (binary after clamp)
     """
 
     cfg: "SymmetricDualIKActionCfg"
@@ -55,7 +54,7 @@ class SymmetricDualIKAction(ActionTerm):
             ),
             env,
         )
-        self._task_dim = self._left_term.action_dim
+        self._single_task_dim = self._left_term.action_dim
         self._raw_actions = torch.zeros((self.num_envs, self.action_dim), device=self.device)
         self._grasp = torch.zeros((self.num_envs, 2), device=self.device)
         self._step_counter = torch.zeros(self.num_envs, device=self.device, dtype=torch.long)
@@ -109,12 +108,22 @@ class SymmetricDualIKAction(ActionTerm):
 
     @property
     def action_dim(self) -> int:
-        # left IK (task_dim) + 2 grasp bits
-        return self._task_dim + (2 if self.cfg.include_grasp else 0)
+        # 2 * single-hand IK (task_dim) + 2 grasp bits (left, right)
+        return self._single_task_dim * 2 + (2 if self.cfg.include_grasp else 0)
 
     @property
     def raw_actions(self) -> torch.Tensor:
         return self._raw_actions
+
+    @property
+    def left_grasp_action_index(self) -> int | None:
+        """Index of left grasp action in the flattened action vector."""
+        return self._single_task_dim * 2 if self.cfg.include_grasp else None
+
+    @property
+    def right_grasp_action_index(self) -> int | None:
+        """Index of right grasp action in the flattened action vector."""
+        return self._single_task_dim * 2 + 1 if self.cfg.include_grasp else None
 
     @property
     def processed_actions(self) -> torch.Tensor:
@@ -137,31 +146,33 @@ class SymmetricDualIKAction(ActionTerm):
         # store raw
         self._raw_actions[:] = actions
         # split
-        task_actions = actions[:, : self._task_dim]
+        task_dim_total = self._single_task_dim * 2
+        task_actions = actions[:, :task_dim_total]
+        left_actions = task_actions[:, : self._single_task_dim]
+        right_actions = task_actions[:, self._single_task_dim : task_dim_total]
         if self.cfg.disable_arms:
-            task_actions = torch.zeros_like(task_actions)
+            left_actions = torch.zeros_like(left_actions)
+            right_actions = torch.zeros_like(right_actions)
         # grasp (optional)
         if self.cfg.include_grasp:
-            grasp_raw = actions[:, self._task_dim : self._task_dim + 2]
-            self._grasp[:] = (torch.sigmoid(grasp_raw) > 0.5).float()
+            grasp_raw = actions[:, task_dim_total : task_dim_total + 2]
+            # expect [0,1] inputs; clamp for safety
+            grasp_01 = torch.clamp(grasp_raw, 0.0, 1.0)
             # warmup: force right closed, left open for initial steps
             warm_mask = (self._step_counter < self.cfg.warmup_steps).unsqueeze(-1)
-            self._grasp = torch.where(warm_mask, torch.tensor([0.0, 1.0], device=self.device), self._grasp)
-        handover_mask = torch.zeros((self.num_envs, 1), device=self.device, dtype=torch.bool)
-        if self.cfg.decouple_after_handover and self.cfg.post_handover_left_scale < 1.0:
-            task_actions = torch.where(
-                handover_mask, task_actions * self.cfg.post_handover_left_scale, task_actions
+            self._grasp = torch.where(
+                warm_mask,
+                torch.tensor([0.0, 1.0], device=self.device),
+                grasp_01,
             )
-        # left processes directly
-        self._left_term.process_actions(task_actions)
-        # symmetry center from current hands
-        center = self._compute_center()
-        # mirror for right hand: reflect across robot sagittal plane (YZ).
-        # In this robot frame X is forward/back, Y is left/right, so negate Y only.
-        right_actions = task_actions.clone()
-        right_actions[:, 1] = -right_actions[:, 1]
-        if self.cfg.mirror_rotation:
-            right_actions[:, 3:] = -right_actions[:, 3:]
+        handover_mask = torch.zeros((self.num_envs, 1), device=self.device, dtype=torch.bool)
+        # optional scaling after handover (placeholder mask)
+        if self.cfg.decouple_after_handover and self.cfg.post_handover_left_scale < 1.0:
+            left_actions = torch.where(
+                handover_mask,
+                left_actions * self.cfg.post_handover_left_scale,
+                left_actions,
+            )
         if self.cfg.decouple_after_handover:
             right_actions = torch.where(
                 handover_mask,
@@ -174,6 +185,12 @@ class SymmetricDualIKAction(ActionTerm):
                 )
         else:
             right_actions = right_actions * self.cfg.pre_handover_right_scale
+
+        if self.cfg.mirror_rotation and self._single_task_dim >= 6:
+            right_actions[:, -3:] = -right_actions[:, -3:]
+
+        # left/right processing
+        self._left_term.process_actions(left_actions)
         self._right_term.process_actions(right_actions)
         # drive binary grippers: open=+1, close=-1
         if self._left_grip is not None and self._right_grip is not None and self.cfg.include_grasp:
