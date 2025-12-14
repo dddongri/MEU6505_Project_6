@@ -207,9 +207,9 @@ class EventCfg:
     jitter_hands = EventTerm(func=mdp.randomize_hand_pose, mode="reset")
     place_object = EventTerm(func=mdp.place_object_to_right_hand, mode="reset")
     build_right_arm_reference = EventTerm(func=mdp.build_right_arm_reference_trajectory, mode="reset")
-    log_traj_csv = EventTerm(func=mdp.log_traj_csv_step, mode="reset")
+    mimic_csv_init = EventTerm(func=mdp.mimic_csv_init_episode, mode="reset")
     tick_counter = EventTerm(func=mdp.inc_step_counter, mode="step")
-    log_traj_step = EventTerm(func=mdp.log_traj_step_ref_cur, mode="step")
+    mimic_csv_step = EventTerm(func=mdp.mimic_csv_log_step, mode="step")
 
 
 @configclass
@@ -220,11 +220,11 @@ class GR1T2HandToHandEnvCfg(ManagerBasedRLEnvCfg):
     observations: ObservationsCfg = ObservationsCfg()
     actions: ActionsCfg = ActionsCfg()
     debug_ik_follow: bool = True
-    # trajectory CSV logging (debug)
-    log_traj_csv: bool = True
-    log_traj_env_id: int = 0
-    log_traj_dir: str = "logs/hand2hand_traj"
-    log_traj_write_every: int = 1
+    # DeepMimic-friendly CSV export
+    export_mimic_csv: bool = True
+    export_mimic_env_id: int = 0
+    export_mimic_dir: str = "logs/hand2hand_mimic"
+    export_mimic_write_every: int = 1
     debug_hold_pos_tol: float = 0.015
     debug_hold_rot_tol: float = 0.15
     debug_hold_use_error_gate: bool = True

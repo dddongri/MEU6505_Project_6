@@ -40,10 +40,9 @@ class GR1T2HandToHandEnv(ManagerBasedRLEnv):
             step_counter = self.extras.get("step_counter", None)
             ref_qr = self.extras.get("ref_right_ee_quat", None)
 
-            if getattr(self.cfg, "log_traj_csv", False):
-                # Fallback inline call to ensure per-step logging even if event ordering skips
+            if getattr(self.cfg, "export_mimic_csv", False):
                 from . import mdp
-                mdp.log_traj_step_ref_cur(self)
+                mdp.mimic_csv_log_step(self)
 
             if ref_r is None or step_counter is None:
                 return super().step(new_actions)

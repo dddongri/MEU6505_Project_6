@@ -105,31 +105,16 @@ def reset_episode_extras(env: ManagerBasedRLEnv, env_ids: torch.Tensor | None = 
     else:
         env.extras["sagittal_plane_valid"][ids] = False
 
-    # logging counters
-    if "traj_step_write_t" not in env.extras or env.extras["traj_step_write_t"].shape[0] != n:
-        env.extras["traj_step_write_t"] = torch.zeros(n, device=device, dtype=torch.long)
+    # logging counters (DeepMimic export)
+    if "mimic_write_t" not in env.extras or env.extras["mimic_write_t"].shape[0] != n:
+        env.extras["mimic_write_t"] = torch.zeros(n, device=device, dtype=torch.long)
     else:
-        env.extras["traj_step_write_t"][ids] = 0
+        env.extras["mimic_write_t"][ids] = 0
+    env.extras.setdefault("mimic_ep", -1)
+    env.extras["mimic_task_path"] = None
+    env.extras["mimic_joint_path"] = None
     env.extras["last_applied_grip_l"] = torch.zeros(n, device=device)
     env.extras["last_applied_grip_r"] = torch.zeros(n, device=device)
-
-    # reset logging handles/flags
-    env.extras["traj_csv_done"] = False
-    if env.extras.get("traj_csv_f") is not None:
-        try:
-            env.extras["traj_csv_f"].close()
-        except Exception:
-            pass
-    env.extras["traj_csv_f"] = None
-    env.extras["traj_csv_w"] = None
-    if env.extras.get("traj_step_f") is not None:
-        try:
-            env.extras["traj_step_f"].close()
-        except Exception:
-            pass
-    env.extras["traj_step_f"] = None
-    env.extras["traj_step_w"] = None
-    env.extras["traj_step_path"] = None
 
 
 def inc_step_counter(env: ManagerBasedRLEnv, env_ids: torch.Tensor | None = None):
@@ -142,291 +127,152 @@ def inc_step_counter(env: ManagerBasedRLEnv, env_ids: torch.Tensor | None = None
     env.extras["step_counter"][ids] += 1
 
 
-def _init_traj_handles(env: ManagerBasedRLEnv):
-    """Ensure CSV handle slots exist in extras (works even if env has __slots__)."""
-    extras = env.extras
-    if "traj_csv_f" not in extras:
-        extras["traj_csv_f"] = None
-    if "traj_csv_w" not in extras:
-        extras["traj_csv_w"] = None
-    if "traj_csv_ep" not in extras:
-        extras["traj_csv_ep"] = -1
-    if "traj_csv_done" not in extras:
-        extras["traj_csv_done"] = False
-    if "traj_step_f" not in extras:
-        extras["traj_step_f"] = None
-    if "traj_step_w" not in extras:
-        extras["traj_step_w"] = None
-    if "traj_step_path" not in extras:
-        extras["traj_step_path"] = None
-
-
-def log_traj_csv_step(env: ManagerBasedRLEnv, env_ids: torch.Tensor | None = None):
-    """Per-step CSV logging of right-hand ref/cur trajectory for a single env."""
-    if not getattr(env.cfg, "log_traj_csv", False):
+def mimic_csv_init_episode(env: ManagerBasedRLEnv, env_ids: torch.Tensor | None = None):
+    """Initialize DeepMimic CSV files for the selected env at episode reset."""
+    if not getattr(env.cfg, "export_mimic_csv", False):
         return
 
-    _init_traj_handles(env)
-
-    step_counter = env.extras.get("step_counter")
-    ref_r = env.extras.get("ref_right_ee_pos")
-    if step_counter is None or ref_r is None:
+    dbg_id = int(getattr(env.cfg, "export_mimic_env_id", 0))
+    if dbg_id < 0 or dbg_id >= env.num_envs:
         return
 
-    dbg_id = int(getattr(env.cfg, "log_traj_env_id", 0))
-    if dbg_id < 0 or dbg_id >= ref_r.shape[0] or dbg_id >= step_counter.shape[0]:
+    device = env.device
+    export_dir = getattr(env.cfg, "export_mimic_dir", "logs/hand2hand_mimic")
+    os.makedirs(export_dir, exist_ok=True)
+
+    robot = env.scene["robot"]
+
+    env.extras.setdefault("mimic_ep", -1)
+    env.extras["mimic_ep"] += 1
+    ep = int(env.extras["mimic_ep"])
+
+    task_path = os.path.join(export_dir, f"mimic_task_env{dbg_id}_ep{ep}.csv")
+    joint_path = os.path.join(export_dir, f"mimic_joint_env{dbg_id}_ep{ep}.csv")
+    env.extras["mimic_task_path"] = task_path
+    env.extras["mimic_joint_path"] = joint_path
+
+    if "mimic_write_t" not in env.extras or env.extras["mimic_write_t"].shape[0] != env.num_envs:
+        env.extras["mimic_write_t"] = torch.zeros(env.num_envs, device=device, dtype=torch.long)
+    env.extras["mimic_write_t"][dbg_id] = 0
+
+    task_header = [
+        "t",
+        "phase",
+        "root_px",
+        "root_py",
+        "root_pz",
+        "root_qw",
+        "root_qx",
+        "root_qy",
+        "root_qz",
+        "ref_r_px",
+        "ref_r_py",
+        "ref_r_pz",
+        "ref_r_qw",
+        "ref_r_qx",
+        "ref_r_qy",
+        "ref_r_qz",
+        "ref_l_px",
+        "ref_l_py",
+        "ref_l_pz",
+        "ref_l_qw",
+        "ref_l_qx",
+        "ref_l_qy",
+        "ref_l_qz",
+        "cur_r_px",
+        "cur_r_py",
+        "cur_r_pz",
+        "cur_r_qw",
+        "cur_r_qx",
+        "cur_r_qy",
+        "cur_r_qz",
+        "cur_l_px",
+        "cur_l_py",
+        "cur_l_pz",
+        "cur_l_qw",
+        "cur_l_qx",
+        "cur_l_qy",
+        "cur_l_qz",
+        "ref_grip_l",
+        "ref_grip_r",
+        "act_grip_l",
+        "act_grip_r",
+    ]
+    with open(task_path, "w", newline="") as f_task:
+        csv.writer(f_task).writerow(task_header)
+
+    qpos_sample = robot.data.joint_pos[dbg_id]
+    qvel_sample = robot.data.joint_vel[dbg_id] if hasattr(robot.data, "joint_vel") else None
+    joint_names = getattr(robot.data, "joint_names", None)
+    if joint_names is None or len(joint_names) != qpos_sample.shape[-1]:
+        joint_names = [str(i) for i in range(qpos_sample.shape[-1])]
+
+    joint_header = [
+        "t",
+        "phase",
+        "root_px",
+        "root_py",
+        "root_pz",
+        "root_qw",
+        "root_qx",
+        "root_qy",
+        "root_qz",
+    ]
+    root_lin_vel = getattr(robot.data, "root_lin_vel_w", None)
+    root_ang_vel = getattr(robot.data, "root_ang_vel_w", None)
+    if root_lin_vel is not None:
+        joint_header += ["root_vx", "root_vy", "root_vz"]
+    if root_ang_vel is not None:
+        joint_header += ["root_avx", "root_avy", "root_avz"]
+    for name in joint_names:
+        joint_header.append(f"qpos_{name}")
+    if qvel_sample is not None:
+        for name in joint_names:
+            joint_header.append(f"qvel_{name}")
+    joint_header += ["ref_grip_l", "ref_grip_r", "act_grip_l", "act_grip_r"]
+
+    with open(joint_path, "w", newline="") as f_joint:
+        csv.writer(f_joint).writerow(joint_header)
+
+
+def mimic_csv_log_step(env: ManagerBasedRLEnv, env_ids: torch.Tensor | None = None):
+    """Append DeepMimic-style task/joint CSV rows for the selected env."""
+    if not getattr(env.cfg, "export_mimic_csv", False):
         return
 
-    # 에피소드마다 한 번만 덤프
-    if env.extras.get("traj_csv_done", False):
+    dbg_id = int(getattr(env.cfg, "export_mimic_env_id", 0))
+    if dbg_id < 0 or dbg_id >= env.num_envs:
         return
 
-    if env.extras["traj_csv_f"] is not None:
-        env.extras["traj_csv_f"].close()
-        env.extras["traj_csv_f"] = None
-        env.extras["traj_csv_w"] = None
+    if env.extras.get("mimic_task_path") is None or env.extras.get("mimic_joint_path") is None:
+        mimic_csv_init_episode(env)
 
-    log_dir = getattr(env.cfg, "log_traj_dir", "logs/hand2hand_traj")
-    os.makedirs(log_dir, exist_ok=True)
-
-    env.extras["traj_csv_ep"] += 1
-    path = os.path.join(log_dir, f"traj_env{dbg_id}_ep{env.extras['traj_csv_ep']}.csv")
-
-    env.extras["traj_csv_f"] = open(path, "w", newline="")
-    env.extras["traj_csv_w"] = csv.writer(env.extras["traj_csv_f"])
-    env.extras["traj_csv_w"].writerow(
-        [
-            "t",
-            "phase",
-            "ref_x",
-            "ref_y",
-            "ref_z",
-            "ref_grip_l",
-            "ref_grip_r",
-            "T_episode",
-            "T_ref",
-            "phase_a",
-            "phase_b",
-            "t_handover",
-            "handover_delay_steps",
-        ]
-    )
-
-    # 준비: 스텝별 ref/cur 로깅 파일도 미리 열어 헤더만 써둔다.
-    step_path = os.path.join(log_dir, f"traj_step_env{dbg_id}_ep{env.extras['traj_csv_ep']}.csv")
-    env.extras["traj_step_path"] = step_path
-    with open(step_path, "w", newline="") as f_step:
-        w_step = csv.writer(f_step)
-        w_step.writerow(
-            [
-                "t",
-                "phase",
-                "ref_x",
-                "ref_y",
-                "ref_z",
-                "cur_x",
-                "cur_y",
-                "cur_z",
-                "err_norm",
-                "ref_grip_l",
-                "ref_grip_r",
-                "act_grip_l",
-                "act_grip_r",
-                "cur_qr_w",
-                "cur_qr_x",
-                "cur_qr_y",
-                "cur_qr_z",
-                "cur_ql_w",
-                "cur_ql_x",
-                "cur_ql_y",
-                "cur_ql_z",
-                "tgt_qr_w",
-                "tgt_qr_x",
-                "tgt_qr_y",
-                "tgt_qr_z",
-                "tgt_ql_w",
-                "tgt_ql_x",
-                "tgt_ql_y",
-                "tgt_ql_z",
-                "rot_err_r",
-                "rot_err_l",
-            ]
-        )
-
-    T_ref_val = env.extras.get("T_ref", 0)
-    if isinstance(T_ref_val, torch.Tensor):
-        try:
-            T_ref = int(T_ref_val.item())
-        except Exception:
-            T_ref = 0
-    else:
-        try:
-            T_ref = int(T_ref_val)
-        except Exception:
-            T_ref = 0
-
-    phase_a = int(env.extras.get("phase_a", max(2, int(0.5 * T_ref))))
-    phase_b = int(env.extras.get("phase_b", max(2, T_ref - phase_a)))
-    phase_hold_default = max(2, T_ref - (phase_a + phase_b + max(2, T_ref - (phase_a + phase_b))))
-    phase_hold = int(env.extras.get("phase_hold", phase_hold_default))
-    phase_sep = int(env.extras.get("phase_sep", max(2, T_ref - (phase_a + phase_b + phase_hold))))
-
-    ref_env = ref_r[dbg_id]
-    T_episode = ref_env.shape[0]
-
-    grip_l = env.extras.get("ref_left_grip")
-    grip_r = env.extras.get("ref_right_grip")
-    if grip_l is None or grip_l.shape != (ref_r.shape[0], T_episode):
-        grip_l = torch.zeros((ref_r.shape[0], T_episode), device=env.device)
-    if grip_r is None or grip_r.shape != (ref_r.shape[0], T_episode):
-        grip_r = torch.zeros((ref_r.shape[0], T_episode), device=env.device)
-
-    t_handover = int(env.extras.get("t_handover", 0))
-    handover_delay_steps = int(env.extras.get("handover_delay_steps", 0))
-
-    for ti in range(int(T_episode)):
-        ref_p = ref_env[ti]
-        if T_ref == 0:
-            phase = "unknown"
-        elif ti < phase_a:
-            phase = "lift"
-        elif ti < phase_a + phase_b:
-            phase = "translate"
-        elif ti < phase_a + phase_b + phase_hold:
-            phase = "hold"
-        elif ti < phase_a + phase_b + phase_hold + phase_sep:
-            phase = "separate"
-        else:
-            phase = "hold_final"
-
-        env.extras["traj_csv_w"].writerow(
-            [
-                ti,
-                phase,
-                float(ref_p[0]),
-                float(ref_p[1]),
-                float(ref_p[2]),
-                float(grip_l[dbg_id, ti]),
-                float(grip_r[dbg_id, ti]),
-                int(T_episode),
-                int(T_ref),
-                int(phase_a),
-                int(phase_b),
-                int(t_handover),
-                int(handover_delay_steps),
-            ]
-        )
-
-    env.extras["traj_csv_f"].flush()
-    env.extras["traj_csv_f"].close()
-    env.extras["traj_csv_f"] = None
-    env.extras["traj_csv_w"] = None
-    env.extras["traj_csv_done"] = True
-
-
-def log_traj_step_ref_cur(env: ManagerBasedRLEnv, env_ids: torch.Tensor | None = None):
-    """Per-step logging of ref/current right-hand pose for a single env."""
-    if not getattr(env.cfg, "log_traj_csv", False):
+    task_path = env.extras.get("mimic_task_path")
+    joint_path = env.extras.get("mimic_joint_path")
+    if task_path is None or joint_path is None:
         return
 
-    _init_traj_handles(env)
+    device = env.device
+    robot = env.scene["robot"]
+    if "mimic_write_t" not in env.extras or env.extras["mimic_write_t"].shape[0] != env.num_envs:
+        env.extras["mimic_write_t"] = torch.zeros(env.num_envs, device=device, dtype=torch.long)
+    t_write = int(env.extras["mimic_write_t"][dbg_id].item())
+    env.extras["mimic_write_t"][dbg_id] += 1
 
-    step_counter = env.extras.get("step_counter")
-    ref_r = env.extras.get("ref_right_ee_pos")
-    if step_counter is None or ref_r is None:
+    write_every = max(1, int(getattr(env.cfg, "export_mimic_write_every", 1)))
+    if t_write % write_every != 0:
         return
 
-    dbg_id = int(getattr(env.cfg, "log_traj_env_id", 0))
-    if dbg_id < 0 or dbg_id >= ref_r.shape[0] or dbg_id >= step_counter.shape[0]:
+    ref_r = env.extras.get("ref_right_ee_pos", None)
+    ref_l = env.extras.get("ref_left_ee_pos", None)
+    ref_qr = env.extras.get("ref_right_ee_quat", None)
+    ref_ql = env.extras.get("ref_left_ee_quat", None)
+    ref_gl = env.extras.get("ref_left_grip", None)
+    ref_gr = env.extras.get("ref_right_grip", None)
+    if ref_r is None or ref_l is None or ref_qr is None or ref_ql is None:
         return
-
-    t = int(step_counter[dbg_id].item())
-
-    if env.extras.get("traj_step_path") is None:
-        log_dir = getattr(env.cfg, "log_traj_dir", "logs/hand2hand_traj")
-        os.makedirs(log_dir, exist_ok=True)
-        ep = env.extras.get("traj_csv_ep", -1)
-        path = os.path.join(log_dir, f"traj_step_env{dbg_id}_ep{ep}.csv")
-        env.extras["traj_step_path"] = path
-        with open(path, "w", newline="") as f_step:
-            w_step = csv.writer(f_step)
-            w_step.writerow(
-                [
-                    "t",
-                    "phase",
-                    "ref_x",
-                    "ref_y",
-                    "ref_z",
-                    "cur_x",
-                    "cur_y",
-                    "cur_z",
-                    "err_norm",
-                    "ref_grip_l",
-                    "ref_grip_r",
-                    "act_grip_l",
-                    "act_grip_r",
-                    "cur_qr_w",
-                    "cur_qr_x",
-                    "cur_qr_y",
-                    "cur_qr_z",
-                    "cur_ql_w",
-                    "cur_ql_x",
-                    "cur_ql_y",
-                    "cur_ql_z",
-                    "tgt_qr_w",
-                    "tgt_qr_x",
-                    "tgt_qr_y",
-                    "tgt_qr_z",
-                    "tgt_ql_w",
-                    "tgt_ql_x",
-                    "tgt_ql_y",
-                    "tgt_ql_z",
-                    "rot_err_r",
-                    "rot_err_l",
-                ]
-            )
-
-    T_episode = ref_r.shape[1]
-    if "traj_step_write_t" not in env.extras:
-        env.extras["traj_step_write_t"] = torch.zeros(env.num_envs, device=env.device, dtype=torch.long)
-    t_write = int(env.extras["traj_step_write_t"][dbg_id].item())
-    env.extras["traj_step_write_t"][dbg_id] += 1
-    t_clamped = max(0, min(t_write, T_episode - 1))
-    ref_p = ref_r[dbg_id, t_clamped]
-
-    from .observations import (
-        get_left_eef_pos,
-        get_left_eef_quat,
-        get_right_eef_pos,
-        get_right_eef_quat,
-    )
-
-    cur_all = get_right_eef_pos(env)
-    if cur_all is None or cur_all.shape[0] <= dbg_id:
-        return
-    cur_p = cur_all[dbg_id]
-    cur_qr = get_right_eef_quat(env)[dbg_id]
-    cur_ql = get_left_eef_quat(env)[dbg_id]
-
-    err = torch.norm(ref_p - cur_p).item()
-
-    gl = 0.0
-    gr = 0.0
-    grip_l = env.extras.get("ref_left_grip", None)
-    grip_r = env.extras.get("ref_right_grip", None)
-    if isinstance(grip_l, torch.Tensor) and grip_l.shape[0] > dbg_id and grip_l.shape[1] > t_clamped:
-        gl = float(grip_l[dbg_id, t_clamped])
-    if isinstance(grip_r, torch.Tensor) and grip_r.shape[0] > dbg_id and grip_r.shape[1] > t_clamped:
-        gr = float(grip_r[dbg_id, t_clamped])
-
-    act_gl = 0.0
-    act_gr = 0.0
-    last_gl = env.extras.get("last_applied_grip_l", None)
-    last_gr = env.extras.get("last_applied_grip_r", None)
-    if isinstance(last_gl, torch.Tensor) and last_gl.shape[0] > dbg_id:
-        act_gl = float(last_gl[dbg_id])
-    if isinstance(last_gr, torch.Tensor) and last_gr.shape[0] > dbg_id:
-        act_gr = float(last_gr[dbg_id])
+    T = ref_r.shape[1]
+    idx = max(0, min(t_write, T - 1))
 
     T_ref_val = env.extras.get("T_ref", 0)
     try:
@@ -440,66 +286,124 @@ def log_traj_step_ref_cur(env: ManagerBasedRLEnv, env_ids: torch.Tensor | None =
     phase_sep = int(env.extras.get("phase_sep", max(2, T_ref - (phase_a + phase_b + phase_hold))))
     if T_ref == 0:
         phase = "unknown"
-    elif t_clamped < phase_a:
+    elif t_write < phase_a:
         phase = "lift"
-    elif t_clamped < phase_a + phase_b:
+    elif t_write < phase_a + phase_b:
         phase = "translate"
-    elif t_clamped < phase_a + phase_b + phase_hold:
+    elif t_write < phase_a + phase_b + phase_hold:
         phase = "hold"
-    elif t_clamped < phase_a + phase_b + phase_hold + phase_sep:
+    elif t_write < phase_a + phase_b + phase_hold + phase_sep:
         phase = "separate"
     else:
         phase = "hold_final"
 
-    path = env.extras.get("traj_step_path", None)
-    if path is None:
-        return
-    ref_qr = env.extras.get("ref_right_ee_quat", None)
-    ref_ql = env.extras.get("ref_left_ee_quat", None)
-    tgt_qr = cur_qr if ref_qr is None else ref_qr[dbg_id, t_clamped]
-    tgt_ql = cur_ql if ref_ql is None else ref_ql[dbg_id, t_clamped]
-    q_err_r = math_utils.quat_mul(tgt_qr.unsqueeze(0), math_utils.quat_conjugate(cur_qr.unsqueeze(0)))
-    q_err_l = math_utils.quat_mul(tgt_ql.unsqueeze(0), math_utils.quat_conjugate(cur_ql.unsqueeze(0)))
-    rot_err_r = float(torch.norm(math_utils.axis_angle_from_quat(q_err_r), dim=-1).item())
-    rot_err_l = float(torch.norm(math_utils.axis_angle_from_quat(q_err_l), dim=-1).item())
+    from .observations import (
+        get_left_eef_pos,
+        get_left_eef_quat,
+        get_right_eef_pos,
+        get_right_eef_quat,
+    )
 
-    with open(path, "a", newline="") as f_step:
-        w_step = csv.writer(f_step)
-        w_step.writerow(
-            [
-                t_write,
-                phase,
-                float(ref_p[0]),
-                float(ref_p[1]),
-                float(ref_p[2]),
-                float(cur_p[0]),
-                float(cur_p[1]),
-                float(cur_p[2]),
-                float(err),
-                gl,
-                gr,
-                act_gl,
-                act_gr,
-                float(cur_qr[0].item()),
-                float(cur_qr[1].item()),
-                float(cur_qr[2].item()),
-                float(cur_qr[3].item()),
-                float(cur_ql[0].item()),
-                float(cur_ql[1].item()),
-                float(cur_ql[2].item()),
-                float(cur_ql[3].item()),
-                float(tgt_qr[0].item()),
-                float(tgt_qr[1].item()),
-                float(tgt_qr[2].item()),
-                float(tgt_qr[3].item()),
-                float(tgt_ql[0].item()),
-                float(tgt_ql[1].item()),
-                float(tgt_ql[2].item()),
-                float(tgt_ql[3].item()),
-                rot_err_r,
-                rot_err_l,
-            ]
-        )
+    root_pos_env = robot.data.root_pos_w[dbg_id] - env.scene.env_origins[dbg_id]
+    root_quat_w = robot.data.root_quat_w[dbg_id]
+
+    cur_r_pos = get_right_eef_pos(env)[dbg_id]
+    cur_l_pos = get_left_eef_pos(env)[dbg_id]
+    cur_r_quat = get_right_eef_quat(env)[dbg_id]
+    cur_l_quat = get_left_eef_quat(env)[dbg_id]
+
+    ref_r_p = ref_r[dbg_id, idx]
+    ref_l_p = ref_l[dbg_id, idx]
+    ref_r_q = ref_qr[dbg_id, idx]
+    ref_l_q = ref_ql[dbg_id, idx]
+    ref_gl_val = float(ref_gl[dbg_id, idx]) if isinstance(ref_gl, torch.Tensor) else 0.0
+    ref_gr_val = float(ref_gr[dbg_id, idx]) if isinstance(ref_gr, torch.Tensor) else 0.0
+
+    last_gl = env.extras.get("last_applied_grip_l", None)
+    last_gr = env.extras.get("last_applied_grip_r", None)
+    act_gl = float(last_gl[dbg_id]) if isinstance(last_gl, torch.Tensor) and last_gl.shape[0] > dbg_id else 0.0
+    act_gr = float(last_gr[dbg_id]) if isinstance(last_gr, torch.Tensor) and last_gr.shape[0] > dbg_id else 0.0
+
+    task_row = [
+        t_write,
+        phase,
+        float(root_pos_env[0]),
+        float(root_pos_env[1]),
+        float(root_pos_env[2]),
+        float(root_quat_w[0]),
+        float(root_quat_w[1]),
+        float(root_quat_w[2]),
+        float(root_quat_w[3]),
+        float(ref_r_p[0]),
+        float(ref_r_p[1]),
+        float(ref_r_p[2]),
+        float(ref_r_q[0]),
+        float(ref_r_q[1]),
+        float(ref_r_q[2]),
+        float(ref_r_q[3]),
+        float(ref_l_p[0]),
+        float(ref_l_p[1]),
+        float(ref_l_p[2]),
+        float(ref_l_q[0]),
+        float(ref_l_q[1]),
+        float(ref_l_q[2]),
+        float(ref_l_q[3]),
+        float(cur_r_pos[0]),
+        float(cur_r_pos[1]),
+        float(cur_r_pos[2]),
+        float(cur_r_quat[0]),
+        float(cur_r_quat[1]),
+        float(cur_r_quat[2]),
+        float(cur_r_quat[3]),
+        float(cur_l_pos[0]),
+        float(cur_l_pos[1]),
+        float(cur_l_pos[2]),
+        float(cur_l_quat[0]),
+        float(cur_l_quat[1]),
+        float(cur_l_quat[2]),
+        float(cur_l_quat[3]),
+        ref_gl_val,
+        ref_gr_val,
+        act_gl,
+        act_gr,
+    ]
+    with open(task_path, "a", newline="") as f_task:
+        csv.writer(f_task).writerow(task_row)
+
+    qpos = robot.data.joint_pos[dbg_id].detach().cpu()
+    qvel_data = robot.data.joint_vel if hasattr(robot.data, "joint_vel") else None
+    qvel = qvel_data[dbg_id].detach().cpu() if qvel_data is not None else None
+    joint_names = getattr(robot.data, "joint_names", None)
+    if joint_names is None or len(joint_names) != qpos.shape[-1]:
+        joint_names = [str(i) for i in range(qpos.shape[-1])]
+
+    joint_row = [
+        t_write,
+        phase,
+        float(root_pos_env[0]),
+        float(root_pos_env[1]),
+        float(root_pos_env[2]),
+        float(root_quat_w[0]),
+        float(root_quat_w[1]),
+        float(root_quat_w[2]),
+        float(root_quat_w[3]),
+    ]
+    root_lin_vel = getattr(robot.data, "root_lin_vel_w", None)
+    root_ang_vel = getattr(robot.data, "root_ang_vel_w", None)
+    if root_lin_vel is not None:
+        rv = root_lin_vel[dbg_id]
+        joint_row += [float(rv[0]), float(rv[1]), float(rv[2])]
+    if root_ang_vel is not None:
+        ra = root_ang_vel[dbg_id]
+        joint_row += [float(ra[0]), float(ra[1]), float(ra[2])]
+    for i in range(qpos.shape[-1]):
+        joint_row.append(float(qpos[i]))
+    if qvel is not None:
+        for i in range(qvel.shape[-1]):
+            joint_row.append(float(qvel[i]))
+    joint_row += [ref_gl_val, ref_gr_val, act_gl, act_gr]
+    with open(joint_path, "a", newline="") as f_joint:
+        csv.writer(f_joint).writerow(joint_row)
 
 def build_right_arm_reference_trajectory_legacy(env: ManagerBasedRLEnv, env_ids: torch.Tensor | None = None):
     """
