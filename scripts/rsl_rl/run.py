@@ -82,9 +82,9 @@ class PolicyPlayer:
         
 
         self.models = {
-            "pick_left_hand": "/home/qkd/Desktop/MEU6505_Project_6/scripts/rsl_rl/skills/skill_2.pt",
-            "place_right_hand": "/home/qkd/Desktop/MEU6505_Project_6/scripts/rsl_rl/skills/skill_1.pt",
-            "hand_over_left_to_right": "/home/qkd/Desktop/MEU6505_Project_6/scripts/rsl_rl/skills/skill_1.pt"
+            "pick_right_hand": "/home/qkd/Desktop/MEU6505_Project_6/scripts/rsl_rl/skills/skill_2.pt",
+            "place_left_hand": "/home/qkd/Desktop/MEU6505_Project_6/scripts/rsl_rl/skills/skill_1.pt",
+            "hand_over_right_to_left": "/home/qkd/Desktop/MEU6505_Project_6/scripts/rsl_rl/skills/handover.pt"
         }
         
         self.policy = None          
@@ -141,8 +141,8 @@ class PolicyPlayer:
 
 
 
-            if self.current_step % 10 == 0: # 로그 너무 많이 뜨지 않게 조절
-                print(f"[Debug] Step {self.current_step}: Action Mean={action.mean().item():.4f}, Max={action.max().item():.4f}")
+            #if self.current_step % 10 == 0: # 로그 너무 많이 뜨지 않게 조절
+            #    print(f"[Debug] Step {self.current_step}: Action Mean={action.mean().item():.4f}, Max={action.max().item():.4f}")
             
             if self.current_step >= self.max_steps:
                 print(f"[PolicyPlayer] Skill execution finished ({self.max_steps} steps). Returning to idle.")
@@ -185,10 +185,9 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     #sim_cfg = sim_utils.SimulationCfg(dt=0.01, device=args_cli.device)
     #sim = sim_utils.SimulationContext(sim_cfg)
     #sim.policy_player = policy_player 
-    
+
     sim_context = sim_utils.SimulationContext.instance()
 
-    # 가져온 기존 컨텍스트에 policy_player를 등록합니다.
     if sim_context is not None:
         sim_context.policy_player = policy_player
     else:
