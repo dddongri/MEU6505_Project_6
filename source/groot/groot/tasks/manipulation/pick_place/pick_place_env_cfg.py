@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import torch
 import isaaclab.envs.mdp as base_mdp
 import isaaclab.sim as sim_utils
 from isaaclab.assets import ArticulationCfg, AssetBaseCfg, RigidObjectCfg
@@ -16,25 +15,23 @@ from isaaclab.sensors import FrameTransformerCfg
 from isaaclab.sensors.frame_transformer import OffsetCfg
 from isaaclab.sim.spawners.from_files.from_files_cfg import GroundPlaneCfg, UsdFileCfg
 from isaaclab.utils import configclass
-from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR, ISAACLAB_NUCLEUS_DIR
-
-from . import mdp
+from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR
 
 from isaaclab_assets.robots.fourier import GR1T2_HIGH_PD_CFG  # isort: skip
 from isaaclab.markers.config import FRAME_MARKER_CFG  # isort: skip
+
+from . import mdp
 
 
 FRAME_MARKER_SMALL_CFG = FRAME_MARKER_CFG.copy()
 FRAME_MARKER_SMALL_CFG.markers["frame"].scale = (0.075, 0.075, 0.075)
 
 
-##
-# Scene definition
-##
 @configclass
 class ObjectTableSceneCfg(InteractiveSceneCfg):
+    """Scene for left-hand start grasp -> place on table."""
 
-    # Table
+    # Table (XForm asset; has no .data, so do NOT use as RigidObject in obs)
     packing_table = AssetBaseCfg(
         prim_path="/World/envs/env_.*/PackingTable",
         init_state=AssetBaseCfg.InitialStateCfg(pos=[0.0, 0.55, 0.0], rot=[1.0, 0.0, 0.0, 0.0]),
@@ -44,6 +41,7 @@ class ObjectTableSceneCfg(InteractiveSceneCfg):
         ),
     )
 
+    # Cup object
     object = RigidObjectCfg(
         prim_path="{ENV_REGEX_NS}/Object",
         init_state=RigidObjectCfg.InitialStateCfg(pos=[-0.45, 0.45, 1.08], rot=[1, 0, 0, 0]),
@@ -54,55 +52,64 @@ class ObjectTableSceneCfg(InteractiveSceneCfg):
         ),
     )
 
-    # Humanoid robot configured for pick-place manipulation tasks
+    # Robot (right arm fixed by not being controlled; left arm used)
     robot: ArticulationCfg = GR1T2_HIGH_PD_CFG.replace(
         prim_path="/World/envs/env_.*/Robot",
         init_state=ArticulationCfg.InitialStateCfg(
             pos=(0, 0, 0.93),
             rot=(0.7071, 0, 0, 0.7071),
             joint_pos={
-                # right-arm
+                # ---------------------------
+                # RIGHT ARM: keep comfortable, but NOT controlled
+                # ---------------------------
                 "right_shoulder_pitch_joint": 0.0,
                 "right_shoulder_roll_joint": 0.0,
                 "right_shoulder_yaw_joint": 0.0,
-                "right_elbow_pitch_joint": -1.5708,
+                "right_elbow_pitch_joint": -1.2,
                 "right_wrist_yaw_joint": 0.0,
                 "right_wrist_roll_joint": 0.0,
                 "right_wrist_pitch_joint": 0.0,
-                # left-arm
-                "left_shoulder_pitch_joint": 0.0,
-                "left_shoulder_roll_joint": 0.0,
-                "left_shoulder_yaw_joint": 0.0,
-                "left_elbow_pitch_joint": -1.5708,
+
+                # LEFT ARM: 책상 위로 더 올라가게(추천 튜닝)
+                "left_shoulder_pitch_joint": 0.65,
+                "left_shoulder_roll_joint": 0.22,
+                "left_shoulder_yaw_joint": 0.05,
+                "left_elbow_pitch_joint": -0.75,
                 "left_wrist_yaw_joint": 0.0,
                 "left_wrist_roll_joint": 0.0,
-                "left_wrist_pitch_joint": 0.0,
-                # --
+                "left_wrist_pitch_joint": 0.15,
+
+                # LEFT HAND: 시작부터 CLOSE (쥔 상태)
+                "L_index_.*": 0.0,
+                "L_middle_.*": 0.0,
+                "L_ring_.*": 0.0,
+                "L_pinky_.*": 0.0,
+                "L_thumb_proximal_yaw_joint": 0.0,   # ✅ 양수 넣으면 limit 터짐
+                "L_thumb_proximal_pitch_joint": 0.0,
+                "L_thumb_distal_joint": 0.0,
+
+                # Others
                 "head_.*": 0.0,
                 "waist_.*": 0.0,
                 ".*_hip_.*": 0.0,
                 ".*_knee_.*": 0.0,
                 ".*_ankle_.*": 0.0,
                 "R_.*": 0.0,
-                "L_.*": 0.0,
+
             },
             joint_vel={".*": 0.0},
         ),
     )
 
     # Ground plane
-    ground = AssetBaseCfg(
-        prim_path="/World/GroundPlane",
-        spawn=GroundPlaneCfg(),
-    )
+    ground = AssetBaseCfg(prim_path="/World/GroundPlane", spawn=GroundPlaneCfg())
 
     # Lights
     light = AssetBaseCfg(
-        prim_path="/World/light",
-        spawn=sim_utils.DomeLightCfg(color=(0.75, 0.75, 0.75), intensity=3000.0),
+        prim_path="/World/light", spawn=sim_utils.DomeLightCfg(color=(0.75, 0.75, 0.75), intensity=3000.0)
     )
-    
-    # Frames
+
+    # LEFT EE Frame (IMPORTANT: properly inside SceneCfg)
     ee_frame = FrameTransformerCfg(
         prim_path="/World/envs/env_.*/Robot/left_hand_pitch_link",
         debug_vis=True,
@@ -110,183 +117,194 @@ class ObjectTableSceneCfg(InteractiveSceneCfg):
         target_frames=[
             FrameTransformerCfg.FrameCfg(
                 prim_path="/World/envs/env_.*/Robot/left_hand_pitch_link",
-                name="left_hand_pitch_link",
+                name="left_tcp",
                 offset=OffsetCfg(
-                    pos=(0.0, 0.0, -0.085),    # offset to the center of the gripper
-                    rot=(1.0, 0.0, 0.0, 0.0),  # align with end-effector frame
+                    # TCP offset (손바닥 쪽으로 약간)
+                    pos=(0.0, 0.0, 0.05),
+                    rot=(1.0, 0.0, 0.0, 0.0),
                 ),
             ),
         ],
     )
-    
-    
-##
-# MDP settings
-##
+
+
 @configclass
 class ActionsCfg:
-    """Action specifications for the MDP."""
+    """Left-arm IK (position-only). Hand is fixed open via events (no gripper action)."""
 
-    # Differential IK Action
+    # Left arm IK (7 joints)
     gr1_action = mdp.DifferentialInverseKinematicsActionCfg(
         asset_name="robot",
         joint_names=[
-            "left_shoulder_pitch_joint", "left_shoulder_roll_joint", "left_shoulder_yaw_joint", "left_elbow_pitch_joint", 
-            "left_wrist_yaw_joint", "left_wrist_roll_joint", "left_wrist_pitch_joint",
+            "left_shoulder_pitch_joint",
+            "left_shoulder_roll_joint",
+            "left_shoulder_yaw_joint",
+            "left_elbow_pitch_joint",
+            "left_wrist_yaw_joint",
+            "left_wrist_roll_joint",
+            "left_wrist_pitch_joint",
         ],
         body_name="left_hand_pitch_link",
         body_offset=mdp.DifferentialInverseKinematicsActionCfg.OffsetCfg(
-            pos=(0.0, 0.0, -0.085),
-            rot=(1.0, 0.0, 0.0, 0.0)
+            pos=(0.0, 0.0, 0.05),
+            rot=(1.0, 0.0, 0.0, 0.0),
         ),
-        scale=0.25,
-        controller=mdp.DifferentialIKControllerCfg(command_type="pose", use_relative_mode=True, ik_method="dls"),
+        # relative XYZ command scale per env-step (env-step = decimation * sim.dt)
+        scale=0.04,
+        controller=mdp.DifferentialIKControllerCfg(
+            command_type="pose",      # ✅ position only (easier to learn than full pose)
+            use_relative_mode=True,       # ✅ delta command -> arm can actually reach the table
+            ik_method="dls",
+        ),
     )
-    
-    # Gripper Action
-    gripper_action = mdp.BinaryJointPositionActionCfg(
-        asset_name="robot",
-        joint_names=["L_index_.*", "L_middle_.*", "L_pinky_.*", "L_ring_.*", "L_thumb_.*"],
-        open_command_expr={"L_index_.*": 0.0, "L_middle_.*": 0.0, "L_pinky_.*": 0.0, "L_ring_.*": 0.0, "L_thumb_.*": 0.0},
-        close_command_expr={"L_index_.*": -1.0, "L_middle_.*": -1.0, "L_pinky_.*": -1.0, "L_ring_.*": -1.0, "L_thumb_proximal_yaw_joint": -1.7,
-                            "L_thumb_proximal_pitch_joint": 0.35, "L_thumb_distal_joint": 1.0},
-    )
-
-
-
 @configclass
 class ObservationsCfg:
-    """Observation specifications for the MDP."""
-
     @configclass
     class PolicyCfg(ObsGroup):
-        """Observations for policy group with state values."""
-
         actions = ObsTerm(func=mdp.last_action)
+
         robot_joint_pos = ObsTerm(
             func=base_mdp.joint_pos,
-            params={"asset_cfg": SceneEntityCfg("robot", joint_names=["left_shoulder_pitch_joint", "left_shoulder_roll_joint", 
-                                                                      "left_shoulder_yaw_joint", "left_elbow_pitch_joint", 
-                                                                      "left_wrist_yaw_joint", "left_wrist_roll_joint", "left_wrist_pitch_joint",])},
+            params={
+                "asset_cfg": SceneEntityCfg(
+                    "robot",
+                    joint_names=[
+                        "left_shoulder_pitch_joint",
+                        "left_shoulder_roll_joint",
+                        "left_shoulder_yaw_joint",
+                        "left_elbow_pitch_joint",
+                        "left_wrist_yaw_joint",
+                        "left_wrist_roll_joint",
+                        "left_wrist_pitch_joint",
+                    ],
+                )
+            },
         )
         robot_joint_vel = ObsTerm(
             func=base_mdp.joint_vel,
-            params={"asset_cfg": SceneEntityCfg("robot", joint_names=["left_shoulder_pitch_joint", "left_shoulder_roll_joint", 
-                                                                      "left_shoulder_yaw_joint", "left_elbow_pitch_joint", 
-                                                                      "left_wrist_yaw_joint", "left_wrist_roll_joint", "left_wrist_pitch_joint",])},
+            params={
+                "asset_cfg": SceneEntityCfg(
+                    "robot",
+                    joint_names=[
+                        "left_shoulder_pitch_joint",
+                        "left_shoulder_roll_joint",
+                        "left_shoulder_yaw_joint",
+                        "left_elbow_pitch_joint",
+                        "left_wrist_yaw_joint",
+                        "left_wrist_roll_joint",
+                        "left_wrist_pitch_joint",
+                    ],
+                )
+            },
         )
-        
-        hand_state = ObsTerm(func=mdp.get_hand_state)
-        
-        # robot_root_pos = ObsTerm(func=base_mdp.root_pos_w, params={"asset_cfg": SceneEntityCfg("robot")})
-        # robot_root_rot = ObsTerm(func=base_mdp.root_quat_w, params={"asset_cfg": SceneEntityCfg("robot")})
-        # object_pos = ObsTerm(func=base_mdp.root_pos_w, params={"asset_cfg": SceneEntityCfg("object")})
-        # object_rot = ObsTerm(func=base_mdp.root_quat_w, params={"asset_cfg": SceneEntityCfg("object")})
 
-        # left_eef_pos = ObsTerm(func=mdp.get_left_eef_pos)
-        # left_eef_quat = ObsTerm(func=mdp.get_left_eef_quat)
-        # right_eef_pos = ObsTerm(func=mdp.get_right_eef_pos)
-        # right_eef_quat = ObsTerm(func=mdp.get_right_eef_quat)
-
-        # hand_joint_state = ObsTerm(func=mdp.get_hand_state)
-        # head_joint_state = ObsTerm(func=mdp.get_head_state)
-
-        object = ObsTerm(func=mdp.object_obs)
+        hand_state = ObsTerm(func=mdp.get_hand_state)   # ee_frame 기반
+        object = ObsTerm(func=mdp.object_obs)           # object pose/vel
 
         def __post_init__(self):
             self.enable_corruption = True
             self.concatenate_terms = True
-            
+
     @configclass
     class CriticCfg(PolicyCfg):
         pass
 
-    # observation groups
     policy: PolicyCfg = PolicyCfg()
     critic: CriticCfg = CriticCfg()
 
 
 @configclass
 class RewardsCfg:
-    """Reward terms for the MDP."""
-
-    # -- task
-    track_object_pos = RewTerm(func=mdp.approach_object, weight=5.0)
-    # -- penalties
-    # dof_torques_l2 = RewTerm(func=mdp.joint_torques_l2, weight=-1.0e-9)
-    # dof_acc_l2 = RewTerm(func=mdp.joint_acc_l2, weight=-1.0e-7)
-
-   # ★ 추가된 Place 보상(sy)
-    place_reward = RewTerm(func=mdp.place_reward, weight=5.0)
-    place_success = RewTerm(func=mdp.place_success_reward, weight=3.0)
-
-    action_rate_l2 = RewTerm(func=mdp.action_rate_l2, weight=-0.0001)
-    # -- optional penalties
-    # dof_pos_limits = RewTerm(func=mdp.joint_pos_limits, weight=0.0)
-    
-    success_reach_task = RewTerm(func=mdp.success_reach_task_reward, weight=1.0)
-    termination_penalty = RewTerm(func=mdp.is_terminated, weight=-100.0)
-
+    reach_xy = RewTerm(func=mdp.reward_reach_target_xy, weight=2.0, params={"target_pos_rel": (0.0, 0.55, 0.86)})
+    upright = RewTerm(func=mdp.reward_upright, weight=0.5, params={"upright_cos": 0.92})
+    success = RewTerm(func=mdp.reward_place_success_upright, weight=10.0, params={"target_pos_rel": (0.0, 0.55, 0.86)})
+    action_rate_l2 = RewTerm(func=base_mdp.action_rate_l2, weight=-0.1)
 
 @configclass
 class TerminationsCfg:
-    """Termination terms for the MDP."""
-
     time_out = DoneTerm(func=mdp.time_out, time_out=True)
 
+    # object 떨어뜨리면 종료 (너무 낮으면 튕김으로 오탐)
     object_dropping = DoneTerm(
-        func=mdp.root_height_below_minimum, params={"minimum_height": 0.5, "asset_cfg": SceneEntityCfg("object")}
+        func=mdp.root_height_below_minimum,
+        params={"minimum_height": 0.55, "asset_cfg": SceneEntityCfg("object")},
     )
 
-    success = DoneTerm(func=mdp.task_done_pick_place)
-    # ★ Place 성공 종료 (추가)
-    success_place = DoneTerm(func=mdp.place_success_reward)
-
-
+    success = DoneTerm(func=mdp.task_done_place_upright, params={"target_pos_rel": (0.0, 0.55, 0.86)})
 
 @configclass
 class EventCfg:
-    """Configuration for events."""
-
     reset_all = EventTerm(func=mdp.reset_scene_to_default, mode="reset")
 
-    reset_object = EventTerm(
-        func=mdp.reset_root_state_uniform,
+    # (1) reset: 컵을 왼손 TCP 근처로 순간이동
+    place_object = EventTerm(
+        func=mdp.place_object_to_left_hand,
         mode="reset",
         params={
-            "pose_range": {
-                "x": [-0.02, 0.02],
-                "y": [-0.02, 0.02],
-            },
-            "velocity_range": {},
-            "asset_cfg": SceneEntityCfg("object"),
+            "obj_offset_tcp": (0.0, 0.08, 0.0),
+            "align_with_hand": False,
+            "force_upright": True,
         },
     )
 
+    # (2) reset: “붙어있음” 플래그 ON
+    attach_object = EventTerm(
+        func=mdp.set_object_attached,
+        mode="reset",
+        params={"attached": True},
+    )
+
+    # (3) interval: 손은 계속 편 상태로 고정(떨림 제거)
+    keep_hand_open = EventTerm(
+        func=mdp.keep_left_hand_open,
+        mode="interval",
+        interval_range_s=(0.02, 0.02),
+        params={"open_value": 0.0},
+    )
+
+    # (4) interval: attached=True일 때만 컵을 손에 “붙여서” 따라오게 함
+    weld_object = EventTerm(
+        func=mdp.keep_object_welded_to_left_hand,
+        mode="interval",
+        interval_range_s=(0.02, 0.02),
+        params={
+            "obj_offset_tcp": (0.0, 0.08, 0.0),
+            "align_with_hand": False,
+            "force_upright": True,
+        },
+    )
+
+    # (5) interval: 목표 근처면 attached=False로 바꿔서 “용접 끊기” => 컵이 떨어짐
+    auto_release = EventTerm(
+        func=mdp.release_object_if_at_target,
+        mode="interval",
+        interval_range_s=(0.02, 0.02),
+        params={
+            "target_pos_rel": (0.0, 0.55, 0.86),
+            "xy_thresh": 0.06,
+            "z_min": 0.75,
+            "upright_cos": 0.92,
+            "speed_thresh": 0.35,
+        },
+    )
 
 @configclass
 class GR1T2PickPlaceEnvCfg(ManagerBasedRLEnvCfg):
-    """Configuration for the GR1T2 environment."""
+    scene: ObjectTableSceneCfg = ObjectTableSceneCfg(num_envs=256, env_spacing=2.5, replicate_physics=True)
 
-    # Scene settings
-    scene: ObjectTableSceneCfg = ObjectTableSceneCfg(num_envs=4096, env_spacing=2.5, replicate_physics=True)
-    # Basic settings
     observations: ObservationsCfg = ObservationsCfg()
     actions: ActionsCfg = ActionsCfg()
-    # MDP settings
+
     rewards: RewardsCfg = RewardsCfg()
     terminations: TerminationsCfg = TerminationsCfg()
-    events = EventCfg()
+    events: EventCfg = EventCfg()
 
-    # Unused managers
+    # unused
     commands = None
     curriculum = None
 
     def __post_init__(self):
-        """Post initialization."""
-        # general settings
-        self.decimation = 3
-        self.episode_length_s = 10.0
-        # simulation settings
-        self.sim.dt = 1 / 120  # 120Hz
-        self.sim.render_interval = 3  # 40Hz
+        self.decimation = 6              # 크게 할수록 제어가 부드러워짐
+        self.episode_length_s = 8.0
+        self.sim.dt = 1 / 120
+        self.sim.render_interval = 3
