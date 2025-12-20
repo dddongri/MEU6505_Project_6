@@ -160,6 +160,7 @@ python scripts/list_envs.py
 - **`GR1T2-Basic`** - GR1T2 humanoid basic bimanual manipulation
 - **`GR1T2-PickPlace`** - GR1T2 pick-and-place task
 - **`GR1T2-HandToHand`** - GR1T2 hand-to-hand object transfer task
+- **`GROOT-Mimic`** - GR1T2 motion tracking (mimic) task
 
 ### Training
 
@@ -183,6 +184,15 @@ python scripts/rsl_rl/train.py --task GR1T2-PickPlace --headless
 
 > **💡 Tip:** Groot is compatible with `rsl_rl`, `Stable Baselines3`, and custom reinforcement learning algorithms.
 
+#### Motion Tracking (Mimic) Training
+
+For the motion tracking task (`GROOT-Mimic`), use the dedicated scripts:
+
+```bash
+# Train Mimic Policy
+python scripts/rsl_rl/train_mimic.py --task GROOT-Mimic --headless
+```
+
 ### Evaluation
 
 Evaluate trained models:
@@ -197,6 +207,21 @@ python scripts/rsl_rl/play.py --task TASK_NAME --log_dir PATH_TO_LOG --num_envs 
 # Example
 python scripts/rsl_rl/play.py --task GR1T2-PickPlace --num_envs 16
 ```
+
+#### Motion Tracking (Mimic) Evaluation
+
+To visualize the trained mimic policy:
+
+```bash
+python scripts/rsl_rl/play_mimic.py --task GROOT-Mimic
+```
+
+### Motion Data Processing
+
+Scripts for processing motion data are located in `scripts/animation_motions/`:
+
+- `csv_to_npz.py`: Converts motion data from CSV to NPZ format.
+- `replay_motion.py`: Replays the processed motion data.
 
 > **💡 Tip:** If `--log_dir` is not specified, the latest log is automatically loaded!
 
@@ -261,6 +286,8 @@ Code formatting and linting will be performed automatically on commit.
 ---
 
 ## Results
+https://github.com/user-attachments/assets/21962bb4-2b13-44d9-8068-15ecebc05828
+
 https://github.com/user-attachments/assets/499807a0-a2ce-4b77-b3db-b387dd2a092b
 
 ---
