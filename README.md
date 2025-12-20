@@ -342,6 +342,43 @@ In our experiments, training the **Hand-to-Hand Transfer** skill using pure RL (
 
 By adopting the **DeepMimic** approach, we provide the agent with a "template" of how a successful handover looks, transforming the problem from *exploration* to *tracking*, which significantly improves learning stability and success rates.
 
+### 🔄 Impact of Symmetry on Training Efficiency
+
+Leveraging the bilateral symmetry of the humanoid robot proved to be a crucial factor in efficient learning.
+
+- **Data Augmentation**: By mirroring states and actions, we effectively double the amount of experience gathered from each episode. A successful trajectory for the left arm provides a valid training signal for the right arm (and vice versa).
+- **Reduced Exploration Space**: The agent learns a unified policy that generalizes across both sides, rather than learning separate policies for each arm. This significantly reduces the dimensionality of the effective search space.
+- **Result**: We observed faster convergence rates and more consistent behavior between the left and right arms compared to non-symmetry-aware baselines.
+
+### 🧠 LLM Integration Analysis: Role and Limitations
+
+The integration of a Large Language Model (LLM) as a high-level planner brings both significant advantages and unique challenges to the robotic control pipeline.
+
+**Advantages:**
+- **Flexibility & Natural Language Understanding**: The LLM can interpret vague or complex user commands (e.g., "Move the beaker to the far right") and translate them into a structured sequence of skills without requiring hard-coded rules for every possible scenario.
+- **Context Awareness**: It can maintain context over a long horizon, understanding that a "Place" action must be preceded by a "Pick" action.
+
+**Limitations & Challenges:**
+- **Hallucination**: LLMs can sometimes generate plausible but incorrect plans, such as inventing non-existent skills or assuming the robot can reach physically impossible locations.
+- **Physical Grounding**: The LLM lacks an inherent understanding of physics (e.g., collision, gravity), which can lead to plans that are logically sound but physically infeasible.
+
+**Role of MCP (Model Context Protocol):**
+To mitigate these issues, the **MCP server** acts as a crucial grounding layer. By exposing the simulation state and available skills as strictly defined "tools," MCP constrains the LLM's output space.
+- **State Verification**: Before planning, the LLM is forced to query the actual robot/object state via MCP, reducing hallucinations based on incorrect assumptions.
+- **Structured Execution**: Instead of generating free-form text, the LLM must call specific MCP tools (e.g., `execute_pick_skill`), ensuring that only valid, pre-trained skills are triggered.
+
+### 🔮 Future Work: Sim-to-Real Transfer
+
+While our framework demonstrates robust performance in the Isaac Lab simulation, deploying it to the physical GR1T2 robot presents several challenges:
+
+- **Dynamics Mismatch**: Discrepancies in friction, mass distribution, and actuator dynamics between the simulation and the real world.
+- **Sensor Noise**: Real-world sensors (joint encoders, IMUs) are noisy, and perfect object pose estimation (assumed in simulation) is difficult to achieve with vision systems.
+
+**Planned Mitigation Strategies:**
+1.  **Domain Randomization**: Randomizing physical parameters (mass, friction, damping) during training to make the policy robust to variations.
+2.  **System Identification**: Fine-tuning simulation parameters to better match the real robot's behavior.
+3.  **Vision-Based Policy**: Transitioning from state-based observations to direct visual inputs (RGB-D) to reduce reliance on precise object pose estimation.
+
 
 ## 📚 References
 
