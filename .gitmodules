@@ -1,0 +1,3 @@
+[submodule "source/groot/groot/arc_rl"]
+	path = source/groot/groot/arc_rl
+	url = https://github.com/S-CHOI-S/arc_rl.git
