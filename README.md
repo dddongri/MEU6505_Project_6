@@ -30,6 +30,17 @@
 - Existing LLM-based planners (such as LABOR, LLM+MAP) typically rely on scripted skills, limiting flexibility and generalization
 - This project develops a hierarchical framework where an LLM generates symmetry-aware subgoals that are executed by RL controllers
 
+### ✨ Contributions
+
+1. **Hierarchical Framework Integrating LLMs and RL**
+   We propose a hierarchical control framework that addresses the challenges of long-horizon bimanual tasks and unstable training in end-to-end RL. By leveraging Large Language Models (LLMs) to generate symmetry-aware subgoals and skill sequences, the framework effectively guides low-level RL policies (Pick, Handover, Place), significantly improving task success rates in complex scenarios. To overcome the failure of pure RL in precise bimanual coordination, we adopted a DeepMimic-style approach for the handover subtask.
+
+2. **Efficiency via Symmetry-Based Policy Mirroring (Flipping)**
+   We maximize sample efficiency by exploiting the structural symmetry of the humanoid robot. The learned policy is designed to be directly reusable for the opposite arm through state/action flipping, allowing for bi-directional execution without the need for redundant training on both sides.
+
+3. **Optimized State-Based Observation for Robust Generalization**
+   To ensure computational efficiency and meet tight schedules, we optimized the observation space to focus on object poses and robot states rather than heavy vision-based inputs (RGB/Point-clouds). This approach enables sample-efficient learning and ensures robust generalization across diverse initial poses and object layouts in the simulation environment.
+
 ### 📊 Dataset and Environment
 
 - Utilizes Isaac Lab's simulated bimanual manipulation task environments
@@ -249,11 +260,22 @@ Code formatting and linting will be performed automatically on commit.
 
 ---
 
+## Results
+https://github.com/user-attachments/assets/499807a0-a2ce-4b77-b3db-b387dd2a092b
+
+---
+
+
 ## 📚 References
 
 ### Related Papers
-- **LABOR**: [Learning to Acquire Novel Bimanual Object Manipulation through Large Language Models](https://arxiv.org/pdf/2404.02018)
-- **Isaac Lab**: [Documentation](https://isaac-sim.github.io/IsaacLab/main/source/overview/environments.html)
+
+1. T. Z. Zhao, et al., "Learning to Acquire Novel Bimanual Object Manipulation through Large Language Models," *arXiv preprint arXiv:2404.02018*, 2024.
+2. Y. Shao and C. Xiao, "Bimanual grasp synthesis for dexterous robot hands," *IEEE Robotics and Automation Letters*, 2024.
+3. B. Zhou, H. Yuan, Y. Fu, and Z. Lu, "Learning diverse bimanual dexterous manipulation skills from human demonstrations," *arXiv preprint arXiv:2410.02477*, 2024.
+4. B. Huang, Y. Chen, T. Wang, Y. Qin, Y. Yang, N. Atanasov, and X. Wang, "Dynamic handover: Throw and catch with bimanual hands," *arXiv preprint arXiv:2309.05655*, 2023.
+5. S. Wang, L. Sun, F. Zha, W. Guo, and P. Wang, "Learning adaptive reaching and pushing skills using contact information," *Frontiers in Neurorobotics*, vol. 17, p. 1271607, 2023.
+6. H. Zhou and X. Lin, "Intelligent redundant manipulation for long-horizon operations with multiple goal-conditioned hierarchical learning," *Advanced Robotics*, vol. 39, no. 6, pp. 291–304, 2025.
 
 ### Technologies Used
 - [NVIDIA Isaac Sim](https://docs.omniverse.nvidia.com/isaacsim/latest/overview.html) - High-performance robot simulation
