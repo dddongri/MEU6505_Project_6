@@ -100,7 +100,33 @@ Where:
 
 This objective encourages the new policy to improve upon the old one while staying within a "trust region" to prevent performance collapse.
 
----
+### 🎭 Motion Imitation (Mimic)
+
+To achieve natural and physically plausible motions, we employ a **DeepMimic-style** motion tracking approach. The goal is to train the policy to reproduce a reference motion (e.g., human motion capture data) as closely as possible in the physics simulation.
+
+#### Reward Structure
+
+The total reward $r_t$ is a weighted sum of individual reward terms designed to encourage tracking accuracy:
+
+$$
+r_t = w_{p} r_t^p + w_{q} r_t^q + w_{v} r_t^v + w_{\omega} r_t^{\omega}
+$$
+
+Each term is typically formulated as an exponential kernel of the error:
+
+$$
+r_t^x = \exp(-k_x \| x_{student} - x_{teacher} \|^2)
+$$
+
+Where:
+- $r_t^p$: **Joint Position Reward** (penalizes deviation in joint angles)
+- $r_t^q$: **Joint Orientation Reward** (penalizes deviation in body/link orientations)
+- $r_t^v$: **Linear Velocity Reward** (penalizes deviation in end-effector/body velocities)
+- $r_t^{\omega}$: **Angular Velocity Reward** (penalizes deviation in angular velocities)
+
+This formulation ensures that the reward is maximized (close to 1) when the error is zero and decays smoothly as the error increases, providing dense and stable feedback for the RL agent.
+
+
 
 ## 🚀 Quick Start
 
@@ -213,7 +239,7 @@ python scripts/rsl_rl/play.py --task GR1T2-PickPlace --num_envs 16
 To visualize the trained mimic policy:
 
 ```bash
-python scripts/rsl_rl/play_mimic.py --task GROOT-Mimic
+python scripts/rsl_rl/play_mimic.py --task GROOT-Mimic-Play
 ```
 
 ### Motion Data Processing
@@ -291,6 +317,30 @@ https://github.com/user-attachments/assets/21962bb4-2b13-44d9-8068-15ecebc05828
 https://github.com/user-attachments/assets/499807a0-a2ce-4b77-b3db-b387dd2a092b
 
 ---
+
+
+## 🗣️ Discussion
+
+### ⚖️ Comparative Analysis: Pure RL vs. Motion Imitation
+
+| Feature | Pure RL (End-to-End) | Motion Imitation (DeepMimic) |
+| :--- | :--- | :--- |
+| **Motion Quality** | Often unnatural, jittery, or exploits physics quirks | Natural, smooth, and physically plausible (human-like) |
+| **Exploration** | Hard to explore complex coordination (sparse reward problem) | Guided exploration via reference motion (dense reward) |
+| **Sample Efficiency** | Low (requires millions of steps to find solution) | High (reference motion narrows search space) |
+| **Robustness** | Can be brittle to dynamics changes | Generally more robust due to structured motion priors |
+| **Task Applicability** | Simple, single-objective tasks | Complex, coordinated tasks (e.g., bimanual handover) |
+
+### 📉 Why Pure RL Failed in Bimanual Handover?
+
+In our experiments, training the **Hand-to-Hand Transfer** skill using pure RL (without motion priors) proved to be extremely challenging. The key reasons for this failure include:
+
+1.  **High-Dimensional Coordination**: Bimanual manipulation requires precise synchronization between two 7-DOF arms and dexterous hands. The joint state space is too vast for random exploration to effectively traverse.
+2.  **Sparse Reward Landscape**: The successful handover of an object is a "sparse" event. Without intermediate guidance (like a reference motion), the agent rarely stumbles upon the exact coordination needed to pass the object without dropping it.
+3.  **Unnatural Postures**: Even when pure RL manages to transfer the object, it often adopts awkward or physically infeasible postures that are unstable and difficult to transition to subsequent tasks (like placing).
+4.  **Local Optima**: The agent tends to get stuck in local optima, such as holding the object with one hand and refusing to attempt the risky transfer action to avoid the penalty of dropping it.
+
+By adopting the **DeepMimic** approach, we provide the agent with a "template" of how a successful handover looks, transforming the problem from *exploration* to *tracking*, which significantly improves learning stability and success rates.
 
 
 ## 📚 References
