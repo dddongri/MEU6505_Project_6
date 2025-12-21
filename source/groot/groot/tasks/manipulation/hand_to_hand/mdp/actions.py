@@ -221,6 +221,9 @@ class SymmetricDualIKAction(ActionTerm):
             self._left_grip.apply_actions()
         if self._right_grip is not None:
             self._right_grip.apply_actions()
+        # expose applied grasp command (0=open, 1=close) for logging/export
+        self._env.extras["last_applied_grip_l"] = self._grasp[:, 0].detach().clone()
+        self._env.extras["last_applied_grip_r"] = self._grasp[:, 1].detach().clone()
         # step counter increments each env step
         self._step_counter += 1
         # expose step counter for term/reward gating

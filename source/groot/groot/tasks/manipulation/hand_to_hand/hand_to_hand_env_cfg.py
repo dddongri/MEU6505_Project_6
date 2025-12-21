@@ -208,8 +208,14 @@ class EventCfg:
     place_object = EventTerm(func=mdp.place_object_to_right_hand, mode="reset")
     build_right_arm_reference = EventTerm(func=mdp.build_right_arm_reference_trajectory, mode="reset")
     mimic_csv_init = EventTerm(func=mdp.mimic_csv_init_episode, mode="reset")
-    tick_counter = EventTerm(func=mdp.inc_step_counter, mode="step")
-    mimic_csv_step = EventTerm(func=mdp.mimic_csv_log_step, mode="step")
+    # NOTE: step_counter is already tracked in the action term and/or reset_extras. Keep this disabled to avoid drift.
+    tick_counter = None
+    mimic_csv_step = EventTerm(
+        func=mdp.mimic_csv_log_step,
+        mode="interval",
+        interval_range_s=(0.0, 0.0),
+        is_global_time=True,
+    )
 
 
 @configclass

@@ -40,17 +40,11 @@ class GR1T2HandToHandEnv(ManagerBasedRLEnv):
             step_counter = self.extras.get("step_counter", None)
             ref_qr = self.extras.get("ref_right_ee_quat", None)
 
-            if getattr(self.cfg, "export_mimic_csv", False):
-                from . import mdp
-                mdp.mimic_csv_log_step(self)
-
             if ref_r is None or step_counter is None:
                 return super().step(new_actions)
 
             T = ref_r.shape[1]
-            decim = int(getattr(self.cfg, "decimation", 1))
-            idx_ctrl = step_counter.long() // max(decim, 1)
-            idx = torch.clamp(idx_ctrl, min=0, max=T - 1)
+            idx = torch.clamp(step_counter.long(), min=0, max=T - 1)
             arng = torch.arange(self.num_envs, device=self.device)
 
             cur_r = get_right_eef_pos(self)

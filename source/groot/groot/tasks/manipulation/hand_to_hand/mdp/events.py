@@ -160,4 +160,4 @@ def place_object_to_right_hand(
 def reset_scene_to_default(env: ManagerBasedEnv, env_ids: torch.Tensor | None = None):
     """Reset scene and also hard-reset per-episode extras flags/counters."""
     base_mdp.reset_scene_to_default(env, env_ids)
-    reset_episode_extras(env)
+    reset_episode_extras(env, env_ids=env_ids)

@@ -135,6 +135,14 @@ def mimic_csv_init_episode(env: ManagerBasedRLEnv, env_ids: torch.Tensor | None 
     dbg_id = int(getattr(env.cfg, "export_mimic_env_id", 0))
     if dbg_id < 0 or dbg_id >= env.num_envs:
         return
+    # If called from a reset event, only initialize when the selected env is actually being reset.
+    if env_ids is not None and not isinstance(env_ids, slice):
+        if isinstance(env_ids, torch.Tensor):
+            if not bool((env_ids == dbg_id).any().item()):
+                return
+        else:
+            if dbg_id not in env_ids:
+                return
 
     device = env.device
     export_dir = getattr(env.cfg, "export_mimic_dir", "logs/hand2hand_mimic")
