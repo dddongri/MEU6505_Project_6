@@ -10,7 +10,10 @@
 import argparse
 import sys
 
+import isaacsim
+
 from isaaclab.app import AppLauncher
+
 
 # local imports
 import cli_args  # isort: skip
@@ -57,6 +60,8 @@ import gymnasium as gym
 import os
 import time
 import torch
+import isaaclab.sim as sim_utils
+
 
 from rsl_rl.runners import DistillationRunner, OnPolicyRunner
 
@@ -80,8 +85,52 @@ from isaaclab_tasks.utils.hydra import hydra_task_config
 # PLACEHOLDER: Extension template (do not remove this comment)
 
 
+
+
+class PolicyPlayer:
+    def __init__(self):
+        print("PolicyPlayer initialized")
+        self.models = {
+            #안되는거 보니까 절대좌표로만 되나본데
+            "pick": "/home/qkd/Desktop/MEU6505_Project_6/scripts/rsl_rl/skills/skill_1.pt",#handover_left_to_right, pick_left_hand, place_right_hand
+            "skill_2": "./skills/skill_2.pt",
+        }
+        
+    def rollout_skill(self, skill_name: str, max_steps: int = 200) -> dict:
+        print(f"Executing skill: {skill_name}")
+        
+        if skill_name not in self.models:
+            return {"status": "error", "message": f"Unknown skill: {skill_name}"}
+        file_path = self.models[skill_name]
+        
+        if not os.path.exists(file_path):
+            print(f"[Error] File not found at: {file_path}")
+            return {"status": "error", "message": "Checkpoint file not found"}
+
+        try:
+            print(f"Loading checkpoint from: {file_path}")
+            
+            loaded_data = torch.load(file_path, map_location='cpu')
+            
+            # 일단 로드 되는지만 확인 (나중에 직접 불러와서 실행시키는거 짜야됨(play.py에 해당 코드 있어서 복붙해오면 되긴 할듯))
+            if isinstance(loaded_data, dict):
+                print(f"[Success] Checkpoint keys: {list(loaded_data.keys())}")
+            else:
+                print("[Success] Checkpoint loaded (Not a dict, possibly a raw model).")
+
+        
+        except Exception as e:
+            print(f"[Error] Failed to load checkpoint: {e}")
+            return {"status": "error", "message": str(e)}
+            
+        print(f"Skill '{skill_name}' rollout setup complete.")
+        return {"status": "success", "message": f"Skill '{skill_name}' loaded successfully!"}
+
+    
+
+
 @hydra_task_config(args_cli.task, args_cli.agent)
-def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agent_cfg: RslRlBaseRunnerCfg):
+def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agent_cfg: RslRlBaseRunnerCfg):#
     """Play with RSL-RL agent."""
     # grab task name for checkpoint path
     task_name = args_cli.task.split(":")[-1]
@@ -177,6 +226,16 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     # reset environment
     obs = env.get_observations()
     timestep = 0
+
+
+    #policy_player = PolicyPlayer()
+
+    sim_cfg = sim_utils.SimulationCfg(dt=0.01, device=args_cli.device)
+    sim = sim_utils.SimulationContext(sim_cfg)
+
+    policy_player = PolicyPlayer()
+    sim.policy_player = policy_player
+
     # simulate environment
     while simulation_app.is_running():
         start_time = time.time()
@@ -197,8 +256,21 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         if args_cli.real_time and sleep_time > 0:
             time.sleep(sleep_time)
 
+
     # close the simulator
     env.close()
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 if __name__ == "__main__":

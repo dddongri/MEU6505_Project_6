@@ -62,6 +62,66 @@ The system utilizes the Model Context Protocol to establish a standardized conne
     2.  **Reasoning**: Based on the user's command (e.g., "Move the beaker"), Claude plans the sequence of skills (Pick -> Transfer -> Place).
     3.  **Execution**: Claude calls the appropriate MCP tool to trigger the RL policy for the chosen skill in Isaac Lab.
 
+#### 📋 MCP Setup Guide
+
+**Step 1. Install Claude Desktop**
+
+Download and install the Claude desktop application from the official Anthropic website.
+> for Linux (Ubuntu Debian), see this [link](https://github.com/aaddrick/claude-desktop-debian)
+
+**Step 2. Start the MCP Server**
+
+Run the Isaac Sim MCP server:
+
+```bash
+uv run --directory ~/YOUR_PATH/MEU6505_Project_6/omni-mcp/isaac-sim-mcp ~/YOUR_PATH/MEU6505_Project_6/omni-mcp/isaac-sim-mcp/isaac_mcp/server.py
+```
+
+Replace `YOUR_PATH` with the absolute path to your project directory.
+
+**Step 3. Configure Claude Desktop**
+
+Open Claude Desktop settings:
+1. Go to **Settings** → **Developer** → **Edit Config**
+2. Edit the `claude_desktop_config.json` file and add the following server configuration:
+
+```json
+{
+  "mcpServers": {
+    "mcp-server-omni-isaacsim": {
+      "type": "stdio",
+      "command": "uv",
+      "args": [
+        "run",
+        "--directory",
+        "/YOUR_PATH/MEU6505_Project_6/omni-mcp",
+        "/YOUR_PATH/MEU6505_Project_6/omni-mcp/isaac-sim-mcp/isaac_mcp/server.py"
+      ]
+    }
+  }
+}
+```
+
+>[!Caution]  
+> Use absolute paths (not relative paths) in the configuration.
+
+**Step 4. Launch the Simulator**
+
+Start the Isaac Lab simulator with the MCP extension enabled:
+
+```bash
+python scripts/rsl_rl/run.py --task GR1T2-HandToHand --num_envs 1 --kit_args "--ext-folder /YOUR_PATH/MEU6505_Project_6/omni-mcp/isaac-sim-mcp/ --enable isaac.sim.mcp_extension --enable omni.isaac.nucleus"
+```
+
+Replace `/YOUR_PATH` with your absolute project path.
+
+**Step 5. Interact with Claude**
+
+Once the simulator is running and the MCP server is connected, you can use Claude to:
+- Query the current robot and object state
+- Request task execution (e.g., "Pick the beaker and place it on the table")
+- Monitor task progress in real-time
+
 ### 🧪 Target Task
 
 The primary task demonstrates bimanual manipulation capabilities: **"Grasp a beaker and place it at a desired target location."**
@@ -242,14 +302,12 @@ To visualize the trained mimic policy:
 python scripts/rsl_rl/play_mimic.py --task GROOT-Mimic-Play
 ```
 
-### Motion Data Processing
+### Motion Data
 
-Scripts for processing motion data are located in `scripts/animation_motions/`:
-
-- `csv_to_npz.py`: Converts motion data from CSV to NPZ format.
-- `replay_motion.py`: Replays the processed motion data.
-
-> **💡 Tip:** If `--log_dir` is not specified, the latest log is automatically loaded!
+- Location: `source/groot/groot/motions/animation/handa/` (CSV/NPZ files)
+- Included examples: `handa.csv`, `handa.npz`
+- Conversion: Standalone CSV→NPZ scripts are not included in this repo. Prepare NPZ files that align with the tracking config, or adapt your own preprocessing workflow.
+- Note: When imitating object interactions, ensure sequences encode both robot and object states consistently to avoid contact mismatch during tracking.
 
 ### Training Monitoring
 
@@ -267,25 +325,51 @@ Access `http://localhost:6006` in your browser to view training progress.
 
 ```
 MEU6505_Project_6/
-├── source/groot/              # Groot library main code
-│   ├── groot/
-│   │   └── tasks/            # Task definitions
-│   │       ├── locomotion/   # Locomotion tasks (Anymal-D)
-│   │       └── manipulation/ # Manipulation tasks (GR1T2)
-│   │           ├── pick_place/      # Pick-and-place
-│   │           └── hand_to_hand/    # Hand-to-hand transfer
-│   ├── config/               # Extension configuration
-│   └── setup.py              # Installation script
+├── source/
+│   └── groot/                 # Groot library main code
+│       ├── groot/
+│       │   ├── __init__.py
+│       │   ├── ui_extension_example.py
+│       │   ├── motions/       # Motion animation data
+│       │   │   └── animation/
+│       │   ├── robots/        # Robot model definitions
+│       │   ├── tasks/         # Task definitions
+│       │   │   ├── locomotion/    # Locomotion tasks (Anymal-D)
+│       │   │   ├── manipulation/  # Manipulation tasks (GR1T2)
+│       │   │   ├── tracking/      # Motion tracking tasks
+│       │   │   │   ├── config/    # Task configuration
+│       │   │   │   └── mdp/       # MDP definitions (rewards, observations, etc.)
+│       │   │   └── velocity/      # Velocity-based tasks
+│       │   └── utils/         # Utility functions (exporter, runners, etc.)
+│       ├── config/            # Extension configuration
+│       ├── docs/              # Documentation
+│       ├── pyproject.toml     # Project configuration
+│       └── setup.py           # Installation script
+├── omni-mcp/                  # MCP (Model Context Protocol) server
+│   ├── isaac-sim-mcp/         # Isaac Sim MCP server implementation
+│   ├── main.py
+│   ├── pyproject.toml
+│   └── README.md
 ├── scripts/
-│   ├── rsl_rl/              # RSL-RL training/evaluation scripts
-│   │   ├── train.py         # Training script
-│   │   └── play.py          # Evaluation script
-│   ├── list_envs.py         # List environments
-│   └── rename_template.py   # Rename template
-├── docs/                     # Documentation and images
-├── logs/                     # Training logs (generated)
-├── README.md                 # This file
-└── README_setup.md          # Detailed setup guide
+│   ├── rsl_rl/                # RSL-RL training/evaluation scripts
+│   │   ├── train.py           # PPO training script
+│   │   ├── train_mimic.py      # DeepMimic-style training script
+│   │   ├── play.py            # Model evaluation/visualization
+│   │   ├── play_mimic.py       # Mimic task evaluation
+│   │   ├── run.py             # Environment runner
+│   │   ├── cli_args.py         # CLI arguments for training
+│   │   ├── cli_args_mimic.py   # CLI arguments for mimic training
+│   │   └── skills/            # Trained skill checkpoints
+│   ├── list_envs.py           # List available environments
+│   └── rename_template.py     # Template utility
+├── docs/                      # Documentation and images
+├── logs/                      # Training logs (generated at runtime)
+├── .pre-commit-config.yaml    # Pre-commit configuration
+├── pyproject.toml             # Root project configuration
+├── CITATION.cff               # Citation information
+├── LICENCE                    # License file
+├── README.md                  # This file
+└── README_setup.md            # Detailed setup guide
 ```
 
 ---
@@ -311,10 +395,117 @@ Code formatting and linting will be performed automatically on commit.
 
 ---
 
-## Results
+## 🎬 Results
+
+### 🚀 From Pure RL to DeepMimic: The Learning Journey
+
+Our experimental journey revealed a critical insight: **pure reinforcement learning struggles significantly with complex bimanual coordination tasks**. This section documents our progression from encountering RL challenges to implementing and evaluating a DeepMimic-based approach.
+
+#### 📊 Challenge: Pure RL Failure in Hand-to-Hand Transfer
+
+**Problem**: Training the **Hand-to-Hand Transfer** (handover) skill using standard PPO without motion guidance proved extremely difficult and unstable.
+
+**Why RL Alone Fails**:
+- **High Dimensionality**: The humanoid has 55+ actuated joints (7-DOF per arm + dexterous hand fingers). The state-action space is enormous, making exploration inefficient.
+- **Dexterous Hand Complexity**: The anthropomorphic hands feature multiple fingers with complex joint interdependencies. Coordinating both:
+  - Individual finger joints for fine-grained object manipulation
+  - Wrist orientation for object positioning
+  - Arm movement for workspace coverage
+  
+  This creates a **combinatorial explosion** of possible hand configurations. A slight finger misalignment can cause object drops, and the agent must learn precise finger synchronization through trial-and-error.
+
+- **Sparse Rewards**: Object handover is a rare event. The agent must discover the precise coordination by chance, which typically requires millions of environment steps.
+- **Unstable Training**: Without guidance, the agent often discovers unnatural solutions that exploit physics quirks, leading to brittle policies that fail when conditions change slightly.
+- **Credit Assignment Problem**: The agent struggles to understand which arm and hand movements are responsible for successful or failed handovers. With 50+ actuators, it's nearly impossible to determine which joints contributed to failure.
+- **Local Optima Trap**: The agent tends to get stuck holding the object with one hand and refuses to attempt the risky transfer action to avoid penalties.
+
+**Observation**: Even after extended training, the policy failed to produce reliable handovers or adopted unstable postures incompatible with downstream tasks (picking, placing).
+
+#### 🔄 Approach: DeepMimic Motion Imitation
+
+**Approach**: We pivoted to a **DeepMimic-style motion imitation framework**, where the policy learns to track a reference motion (human-like handover trajectory) rather than discovering coordination from scratch.
+
+**Expected Benefits**:
+- **Guided Learning**: The reference motion provides dense reward signals at every timestep, transforming the problem from exploration to tracking.
+- **Natural Motion**: Policies trained via imitation should produce smoother, more physically plausible movements.
+- **Faster Convergence**: Training time significantly reduced compared to pure RL exploration.
+
+**Challenges Encountered**:
+While DeepMimic improved training stability, the handover task remained **extremely challenging** even with motion priors:
+- **Reference Motion Quality**: The quality of imitation heavily depends on the reference trajectory. Imperfect reference data led to suboptimal policies.
+- **Sim-to-Ref Gap**: Matching simulation physics to the reference motion's implicit dynamics proved difficult.
+- **Partial Success**: The policy learned smoother motions but still struggled with consistent object grasping and transfer reliability.
+
+#### 📹 Demonstration Videos
+
+**Video 1: Pure RL Challenges (Pre-DeepMimic)**
+
+https://github.com/user-attachments/assets/cf196560-dd7f-4465-883a-fc6f89394b6f
+
+https://github.com/user-attachments/assets/abe539ce-d89c-43bd-a3e7-c12e0c33e900
+
+
+This video showcases the difficulties encountered when training the handover skill using standard PPO without motion priors:
+- **Uncoordinated Arm Movements**: The left and right arms struggle to synchronize, resulting in awkward postures
+- **Frequent Object Drops**: The policy fails to maintain grip control during transfer, dropping the object multiple times
+- **Unstable Grasp Transitions**: The object oscillates between hands without stable handover phases
+- **Poor Task Chaining**: The policy fails to reliably transition to the next task (placing), breaking the skill sequence
+
+**Key Insight**: While the policy occasionally succeeds through luck, it lacks the robust coordination needed for a deployable system. The agent explores inefficiently and gets stuck in local optima.
+
+---
+
+**Video 2: DeepMimic Solution + MCP Server Integration**
+
 https://github.com/user-attachments/assets/21962bb4-2b13-44d9-8068-15ecebc05828
 
 https://github.com/user-attachments/assets/499807a0-a2ce-4b77-b3db-b387dd2a092b
+
+This video demonstrates the **integrated system** combining:
+
+1. **DeepMimic-Trained Handover Policy**: 
+   - The robot shows improved motion smoothness compared to pure RL
+   - Motion patterns approximate human-like coordination
+   - **Still faces challenges**: Handover success is inconsistent, with occasional drops and grip failures
+
+2. **MCP Server Orchestration**: 
+   - Claude AI (via Model Context Protocol) handles high-level task planning
+   - Queries simulation state in real-time via MCP tools
+   - Attempts to orchestrate the skill sequence: **Pick → Handover → Place**
+
+3. **Skill Composition & Execution**:
+   - LLM decides which skills to invoke and in what order
+   - Each skill executes its trained RL policy independently
+   - Monitors task progress, though recovery from failures remains limited
+
+**Current Performance**:
+- ✅ **Improved Coordination**: Motion is noticeably smoother than pure RL
+- ⚠️ **Moderate Success Rate**: Shows improvement but handover remains unreliable
+- ⚠️ **Sensitivity to Variations**: Performance degrades with different object poses
+- ✅ **MCP Integration Works**: LLM-RL collaboration functions as designed, though underlying policies need refinement
+
+---
+
+### 🧩 Current Status & Limitations
+
+- Dexterous hands remain difficult: precise finger coordination and stable grasp phases are brittle.
+- Motion imitation improves smoothness but handover success is still inconsistent, with occasional drops and failed transfers.
+- Imitating object interactions adds challenges (contact timing, force control); compounding errors often lead to instability.
+- Sensitivity to initial conditions persists; robustness needs better reference data and reward shaping.
+- MCP orchestration works as intended (skill selection/execution), but underlying policies require further refinement.
+
+---
+
+### 🔍 Key Takeaways
+
+1. **DeepMimic Improves Learning but Doesn't Solve Everything**: Motion priors enable faster, more stable training (5-10x speedup) and smoother motions, but the underlying task complexity still poses significant challenges. The handover task requires further iteration on reference data quality and reward shaping.
+
+2. **MCP Successfully Integrates LLM and Simulation**: The Model Context Protocol effectively constrains the LLM's action space to well-defined skills, preventing hallucinations. This architectural pattern is validated even when individual skill policies need refinement.
+
+3. **Bimanual Coordination Remains an Open Challenge**: Even with state-of-the-art methods (DeepMimic + PPO), achieving reliable bimanual handovers in simulation is extremely difficult. This highlights the need for:
+   - Better reference motion data (potentially from real robot demonstrations)
+   - More sophisticated reward engineering
+   - Hybrid approaches combining imitation learning with task-specific objectives
 
 ---
 
